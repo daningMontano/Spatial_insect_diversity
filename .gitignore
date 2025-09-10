@@ -1,0 +1,43 @@
+# ========================
+# Archivos de datos crudos y salidas intermedias
+# ========================
+Data/Records/**
+Output/Intermediate/**
+Data/Records/RESPALDO/**
+
+# ========================
+# Archivos grandes de datos (geoespaciales, CSV, etc.)
+# ========================
+*.csv
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.qpj
+*.zip
+
+# ========================
+# Archivos de R
+# ========================
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# ========================
+# Archivos de Python
+# ========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.ipynb_checkpoints/
+
+# ========================
+# Otros archivos temporales
+# ========================
+.DS_Store
+Thumbs.db
