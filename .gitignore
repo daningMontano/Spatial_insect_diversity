@@ -1,7 +1,7 @@
 # ========================
 # Archivos de datos crudos y salidas intermedias
 # ========================
-Data/Records/**
+
 Output/Intermediate/**
 Data/Records/RESPALDO/**
 
