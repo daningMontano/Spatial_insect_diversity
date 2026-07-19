@@ -43,3 +43,8 @@ __pycache__/
 # ========================
 .DS_Store
 Thumbs.db
+
+
+# Excepciones específicas (Archivos que SÍ se van a cargar)
+!Data/Records/del/insects_records_clean.csv
+
