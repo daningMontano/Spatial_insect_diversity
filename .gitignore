@@ -47,4 +47,18 @@ Thumbs.db
 
 # Excepciones específicas (Archivos que SÍ se van a cargar)
 !Data/Records/insects_records_clean.csv
+!Results/raster/GAM_prediction_alpha.tif
+!Results/GIE/Endemism_consensus.tiff
+!Results/raster/records_kernel_density.tiff
+!Results/raster/nmds_result.tiff
+!Results/raster/cluster_raster_result.tiff
+!Results/raster/alpha_diversity/alpha_conservation_all_clusters_likert5.tif
+!Results/raster/endemism/endemism_conservation_all_clusters_likert5.tif
+!Results/raster/alpha_endemism_records/alpha_endemism_records_all_clusters_likert5.tif
+
+# Shapefiles (El uso de .* incluye .shp, .shx, .dbf, .prj, etc.)
+!Results/shp/grid_10km_sampling.*
+!Data/Shp/ecuador_limits.*
+!Data/Shp/snap.*
+!Data/Shp/ron_2011_no_UTM.*
 
