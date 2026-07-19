@@ -1,0 +1,4373 @@
+<<<<<<<<<<<< FILE: 0_Data_proccesing_cleaning.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: markdown >>>>>>>>>>>>
+# **Spatial Patterns of Insect Diversity in Continental Ecuador**
+<<<<<<<<<<<< CELL: 1 TYPE: markdown >>>>>>>>>>>>
+### **Data Processing and Cleaning**
+<<<<<<<<<<<< CELL: 2 TYPE: markdown >>>>>>>>>>>>
+Author: Daning Montaño - Ocampo
+<<<<<<<<<<<< CELL: 3 TYPE: markdown >>>>>>>>>>>>
+In this first part of the process, the biodiversity records are cleaned up to the species level.
+<<<<<<<<<<<< CELL: 4 TYPE: markdown >>>>>>>>>>>>
+# **1. Packages and libraries**
+<<<<<<<<<<<< CELL: 5 TYPE: code >>>>>>>>>>>>
+library(dplyr)
+library(bdc) ## Data cleaning
+library(lubridate)
+library(stringr)
+library(doParallel)
+library(CoordinateCleaner)
+library(purrr)
+<<<<<<<<<<<< CELL: 6 TYPE: markdown >>>>>>>>>>>>
+# **2. Load and Homogenize Data**
+<<<<<<<<<<<< CELL: 7 TYPE: markdown >>>>>>>>>>>>
+We used data from:
+- Global Biodiversity Information Facility (GBIF)
+- PUCE - museum
+- iDigBio
+- Base nacional de datos de biodiversidad (BNDB)
+<<<<<<<<<<<< CELL: 8 TYPE: markdown >>>>>>>>>>>>
+To homogenize and clean the data from different databases, we used the "bdc" package. 
+<<<<<<<<<<<< CELL: 9 TYPE: markdown >>>>>>>>>>>>
+The metadata file contains the column names mapping from the different databases to assign unique names in a single homogenized database.
+<<<<<<<<<<<< CELL: 10 TYPE: code >>>>>>>>>>>>
+metadata <- readr::read_delim("Data/Records/metadata.csv", delim = ";",show_col_types = FALSE)
+
+<<<<<<<<<<<< CELL: 11 TYPE: markdown >>>>>>>>>>>>
+Load the data using the metadata file parameters.
+<<<<<<<<<<<< CELL: 12 TYPE: code >>>>>>>>>>>>
+database<-
+  bdc_standardize_datasets(metadata = metadata,
+                           format = "csv",
+                           overwrite = T,
+                           save_database = T)
+
+
+<<<<<<<<<<<< CELL: 13 TYPE: markdown >>>>>>>>>>>>
+Create a new column containing the name of the data source.
+<<<<<<<<<<<< CELL: 14 TYPE: code >>>>>>>>>>>>
+
+database$database_name =sub("_.*", "", database$database_id)
+unique(database$database_name)
+<<<<<<<<<<<< CELL: 15 TYPE: markdown >>>>>>>>>>>>
+Since the 'year' variable is not formatted properly in the PUCE dataset, we use 'verbatimEventDate' to extract the year values specifically for the PUCE dataset.
+<<<<<<<<<<<< CELL: 16 TYPE: code >>>>>>>>>>>>
+idx <- str_trim(database$database_name) == "PUCE"
+database$year[idx] <- as.integer(
+  lubridate::year(lubridate::ymd_hms(as.character(database$verbatimEventDate[idx]),
+                                     tz = "UTC", quiet = TRUE))
+)
+<<<<<<<<<<<< CELL: 17 TYPE: markdown >>>>>>>>>>>>
+Initial dimension of the dataset
+<<<<<<<<<<<< CELL: 18 TYPE: code >>>>>>>>>>>>
+dimension = database %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension
+<<<<<<<<<<<< CELL: 19 TYPE: code >>>>>>>>>>>>
+len_0 = sum(dimension$n)
+cat("Dataset size:", len_0)
+<<<<<<<<<<<< CELL: 20 TYPE: markdown >>>>>>>>>>>>
+# **3. Cleaning**
+<<<<<<<<<<<< CELL: 21 TYPE: markdown >>>>>>>>>>>>
+## 3.1. Clean repeated occurrenceIDs
+<<<<<<<<<<<< CELL: 22 TYPE: code >>>>>>>>>>>>
+database_1 = database %>%
+  distinct(occurrenceID, .keep_all = TRUE)
+dimension_1= database_1 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_1
+<<<<<<<<<<<< CELL: 23 TYPE: code >>>>>>>>>>>>
+len_1= sum(dimension_1$n)
+cat("Dataset size:", len_1)
+<<<<<<<<<<<< CELL: 24 TYPE: markdown >>>>>>>>>>>>
+## 3.2. Select only species-level data
+<<<<<<<<<<<< CELL: 25 TYPE: markdown >>>>>>>>>>>>
+We only kept data at the species level, filtering by all possible ways "species" can be written.
+NA values are maintained because they come from the BNDB data, which does not contain taxon rank information. We later filter out records that have NA in the scientific name.
+<<<<<<<<<<<< CELL: 26 TYPE: code >>>>>>>>>>>>
+unique(database_1$TaxonRank)
+<<<<<<<<<<<< CELL: 27 TYPE: code >>>>>>>>>>>>
+database_2 = database_1 %>%
+  filter(TaxonRank %in% c( "Species","SPECIES" ,  "SUBSPECIES", "Subspecies", "species", "subspecies", "Species group", "Subspec", NA))  %>%
+  filter(!is.na(scientificName ))%>%
+  filter(class=="Insecta")
+dimension_2 = database_2 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_2
+<<<<<<<<<<<< CELL: 28 TYPE: code >>>>>>>>>>>>
+
+len_2= sum(dimension_2$n)
+cat("Dataset size:", len_2)
+<<<<<<<<<<<< CELL: 29 TYPE: markdown >>>>>>>>>>>>
+## 3.4. Filter date (1970 - 2024)
+<<<<<<<<<<<< CELL: 30 TYPE: markdown >>>>>>>>>>>>
+Exploration of the year variable.
+<<<<<<<<<<<< CELL: 31 TYPE: code >>>>>>>>>>>>
+database_2$year = as.numeric(database_2$year)
+hist(database_2$year)
+<<<<<<<<<<<< CELL: 32 TYPE: markdown >>>>>>>>>>>>
+Filtering records from 1970 to 2024.
+<<<<<<<<<<<< CELL: 33 TYPE: code >>>>>>>>>>>>
+cat( "Min year", min(na.omit(database_2$year)))
+<<<<<<<<<<<< CELL: 34 TYPE: code >>>>>>>>>>>>
+cat( "Max year", max(na.omit(database_2$year)))
+<<<<<<<<<<<< CELL: 35 TYPE: code >>>>>>>>>>>>
+database_3 = database_2 %>%
+  filter(!is.na(year)) %>%
+  filter(year >= 1900) %>%
+  filter(year <= 2024) 
+dimension_3 = database_3 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_3
+<<<<<<<<<<<< CELL: 36 TYPE: code >>>>>>>>>>>>
+
+len_3= sum(dimension_3$n)
+cat("Dataset size:", len_3)
+<<<<<<<<<<<< CELL: 37 TYPE: code >>>>>>>>>>>>
+hist(database_3$year)
+<<<<<<<<<<<< CELL: 38 TYPE: markdown >>>>>>>>>>>>
+## 3.3. Delete empty coordinates
+<<<<<<<<<<<< CELL: 39 TYPE: code >>>>>>>>>>>>
+database_4 = database_3 %>% 
+  filter(!is.na(decimalLatitude)) %>% 
+  filter(!is.na(decimalLongitude)) 
+dimension_4 = database_4 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_4
+<<<<<<<<<<<< CELL: 40 TYPE: code >>>>>>>>>>>>
+len_4= sum(dimension_4$n)
+cat("Dataset size:", len_4)
+<<<<<<<<<<<< CELL: 41 TYPE: markdown >>>>>>>>>>>>
+## 3.5. Filter coordinates out of range
+<<<<<<<<<<<< CELL: 42 TYPE: markdown >>>>>>>>>>>>
+The functions from the "bdc" package add flags to the data frame to indicate potential issues with the coordinates.
+<<<<<<<<<<<< CELL: 43 TYPE: code >>>>>>>>>>>>
+database_5 = bdc_coordinates_outOfRange(data = database_4, 
+lat = "decimalLatitude",
+lon = "decimalLongitude") %>%
+  filter(.coordinates_outOfRange == TRUE)
+
+dimension_5 = database_5 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_5
+<<<<<<<<<<<< CELL: 44 TYPE: code >>>>>>>>>>>>
+len_5= sum(dimension_5$n)
+cat("Dataset size:", len_5)
+<<<<<<<<<<<< CELL: 45 TYPE: markdown >>>>>>>>>>>>
+## 3.6. Filter coordinate uncertainty
+<<<<<<<<<<<< CELL: 46 TYPE: markdown >>>>>>>>>>>>
+We only keep records with a coordinate uncertainty of 10 km or less. If the uncertainty value is NA, the record is retained, and other spatial filters will be applied in subsequent steps.
+<<<<<<<<<<<< CELL: 47 TYPE: code >>>>>>>>>>>>
+database_5$coordinateUncertaintyInMeters = as.numeric(database_5$coordinateUncertaintyInMeters)
+hist(database_5$coordinateUncertaintyInMeters)
+<<<<<<<<<<<< CELL: 48 TYPE: code >>>>>>>>>>>>
+database_6 = database_5%>%
+  filter(coordinateUncertaintyInMeters <= 100000| is.na(coordinateUncertaintyInMeters))
+
+hist(database_6$coordinateUncertaintyInMeters)
+<<<<<<<<<<<< CELL: 49 TYPE: code >>>>>>>>>>>>
+dimension_6 = database_6 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_6
+<<<<<<<<<<<< CELL: 50 TYPE: code >>>>>>>>>>>>
+len_6= sum(dimension_6$n)
+cat("Dataset size:", len_6)
+<<<<<<<<<<<< CELL: 51 TYPE: markdown >>>>>>>>>>>>
+database_6
+<<<<<<<<<<<< CELL: 52 TYPE: markdown >>>>>>>>>>>>
+## 3.7. Filter out taxonomic uncertainty terms
+<<<<<<<<<<<< CELL: 53 TYPE: code >>>>>>>>>>>>
+identify_uncert <- function(name) {
+  uncer_terms <- FALSE
+  infraesp_names <- FALSE
+  generic_only <- FALSE
+  
+  # Taxonomic uncertainty terms ("cf.", "aff.", "?", "nr.", "indet.", "undet")
+  if (grepl("\\b(cf\\.?|aff\\.?|nr\\.?|indet\\.?|undet\\.?|\\?)\\b", name, ignore.case = TRUE)) {
+    uncer_terms <- TRUE
+  }
+  
+
+  
+  # Genus-only records ("sp.", "spp.")
+ # if (grepl("\\b(sp\\.|spp\\.)\\b", name, ignore.case = TRUE)) {
+  #  generic_only <- TRUE
+  #}
+  
+  return(list(
+    name = name,
+    uncer_terms = uncer_terms
+
+    #generic_only = generic_only
+  ))
+}
+<<<<<<<<<<<< CELL: 54 TYPE: code >>>>>>>>>>>>
+sp_names = unique(database_6$scientificName)
+uncertain_results <- map(sp_names , identify_uncert)
+uncertain_results_df <- do.call(rbind, lapply(uncertain_results, as.data.frame))
+uncertain_results_df
+<<<<<<<<<<<< CELL: 55 TYPE: code >>>>>>>>>>>>
+database_7 = database_6 %>%
+  left_join(uncertain_results_df, by = c("scientificName" = "name"))%>%
+  filter(uncer_terms == FALSE)# %>%
+  #filter(generic_only == FALSE)
+dimension_7 = database_7 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_7
+<<<<<<<<<<<< CELL: 56 TYPE: code >>>>>>>>>>>>
+len_7= sum(dimension_7$n)
+cat("Dataset size:", len_7)
+<<<<<<<<<<<< CELL: 57 TYPE: markdown >>>>>>>>>>>>
+## 3.8. Clean scientific names
+<<<<<<<<<<<< CELL: 58 TYPE: code >>>>>>>>>>>>
+sp_names = unique(database_7$scientificName)
+sp_names_clean = bdc_clean_names(
+  sp_names,
+  save_outputs = FALSE
+)
+<<<<<<<<<<<< CELL: 59 TYPE: markdown >>>>>>>>>>>>
+0 → Not interpretable (name could not be parsed).
+
+1 → No problems detected (clean, valid name).
+
+2 → Minor issues (uncertainty terms or small variants, but cleaned successfully).
+
+3 → Moderate issues (complex authorship, ambiguous notation, partially resolved).
+
+4 → Serious problems (multiple inconsistencies, requires manual review).
+<<<<<<<<<<<< CELL: 60 TYPE: code >>>>>>>>>>>>
+hist(sp_names_clean$quality)
+<<<<<<<<<<<< CELL: 61 TYPE: markdown >>>>>>>>>>>>
+Join the clean scientific names back to the main dataset.
+<<<<<<<<<<<< CELL: 62 TYPE: code >>>>>>>>>>>>
+database_8 = database_7 %>%
+  left_join(sp_names_clean, by = c("scientificName" = "scientificName"))%>%
+  filter(quality %in% c(1, 2, 3))
+
+dimension_8 = database_8 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_8
+<<<<<<<<<<<< CELL: 63 TYPE: code >>>>>>>>>>>>
+len_8= sum(dimension_8$n)
+cat("Dataset size:", len_8)
+<<<<<<<<<<<< CELL: 64 TYPE: markdown >>>>>>>>>>>>
+## 3.9. Coordinate precision
+<<<<<<<<<<<< CELL: 65 TYPE: markdown >>>>>>>>>>>>
+A coordinate precision of 1 decimal place is approximately 11 km. 
+<<<<<<<<<<<< CELL: 66 TYPE: code >>>>>>>>>>>>
+database_9 <-
+  bdc_coordinates_precision(
+    data = database_8,
+    lon = "decimalLongitude",
+    lat = "decimalLatitude",
+    ndec = c(1) # Number of decimals to be tested
+  )%>%
+  filter( .rou == TRUE)
+dimension_9 = database_9 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+print(dimension_9)
+<<<<<<<<<<<< CELL: 67 TYPE: code >>>>>>>>>>>>
+len_9= sum(dimension_9$n)
+cat("Dataset size:", len_9)
+<<<<<<<<<<<< CELL: 68 TYPE: markdown >>>>>>>>>>>>
+## 3.10. Coordinate cleaner
+<<<<<<<<<<<< CELL: 69 TYPE: markdown >>>>>>>>>>>>
+We filtered the dataset to keep only records that passed the tests for capitals (.cap), centroids (.cen), and outliers (.otl).
+
+- cap → removes records with capitals that are not the main capital of the country.
+
+- cen → removes records near administrative centroids (country or province centroids assigned by default).
+
+- otl → removes geographic outliers that are far from the main distribution of the species.
+
+This ensures that only records with reliable geographic positions remain, reducing the risk of biased results in downstream analyses.
+<<<<<<<<<<<< CELL: 70 TYPE: code >>>>>>>>>>>>
+database_9$decimalLatitude = as.numeric(database_9$decimalLatitude)
+database_9$decimalLongitude = as.numeric(database_9$decimalLongitude)
+database_10 <- CoordinateCleaner::clean_coordinates(
+  x       = database_9,
+  lon     = "decimalLongitude",
+  lat     = "decimalLatitude",
+  species = "scientificName",
+  tests   = c(
+    "capitals",     # Close to capitals
+    "centroids",    # Close to administrative centroids (country/province)
+    "institutions", # Close to biodiversity institutions (museums, herbaria, zoos)
+    "outliers"    # Geographic outliers per species
+  ),
+  capitals_rad      = 100,
+  centroids_rad     = 100,
+  centroids_detail  = "both",   # país y provincia
+  inst_rad          = 100,
+  outliers_method   = "quantile",
+  outliers_mtp      = 10,
+  outliers_td       = 1000,
+  outliers_size     = 10,
+  zeros_rad         = 0.5
+)
+<<<<<<<<<<<< CELL: 71 TYPE: markdown >>>>>>>>>>>>
+Filter data based on the assigned flags. 
+<<<<<<<<<<<< CELL: 72 TYPE: code >>>>>>>>>>>>
+database_10 = database_10 %>%
+  filter(.cap == TRUE) %>%
+  filter(.cen == TRUE) %>%
+  filter(.otl == TRUE)
+
+dimension_10 = database_10 %>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_10
+<<<<<<<<<<<< CELL: 73 TYPE: code >>>>>>>>>>>>
+len_10= sum(dimension_10$n)
+cat("Dataset size:", len_10)
+<<<<<<<<<<<< CELL: 74 TYPE: markdown >>>>>>>>>>>>
+Remove auxiliary variables generated during the data cleaning process.
+<<<<<<<<<<<< CELL: 75 TYPE: code >>>>>>>>>>>>
+database_10 = database_10 %>%
+  select(c(-.rou,-.val, -.cap, -.cen,-.otl , - .inst ,- .summary))
+<<<<<<<<<<<< CELL: 76 TYPE: markdown >>>>>>>>>>>>
+## 3.11. Taxonomic name validation
+<<<<<<<<<<<< CELL: 77 TYPE: markdown >>>>>>>>>>>>
+Transform subspecies to the species level.
+<<<<<<<<<<<< CELL: 78 TYPE: code >>>>>>>>>>>>
+#sp_names = unique(database_10$names_clean)
+
+#df_sp_level <- tibble(
+#  original = sp_names,
+#  Species_level = str_extract(sp_names, "^\\S+\\s+\\S+")
+#)
+
+
+#database_10 = database_10 %>%
+#  left_join(df_sp_level, by = c("names_clean" = "original")) ## Join data
+<<<<<<<<<<<< CELL: 79 TYPE: markdown >>>>>>>>>>>>
+Taxonomic query using the GBIF database
+<<<<<<<<<<<< CELL: 80 TYPE: code >>>>>>>>>>>>
+
+unique_names = unique(database_10$names_clean)
+query_names <- bdc_query_names_taxadb(
+  sci_name            = unique_names,
+  replace_synonyms    = TRUE, # Replace synonyms with accepted names?
+  suggest_names       = TRUE, # Try to find candidate names for misspelled names?
+  suggestion_distance = 0.8, # Character distance between searched and suggested names
+  db                  = "gbif" , # Taxonomic database
+  rank_name           = "Insecta", # Taxonomic rank filter
+  rank                = "class", # Name of the taxonomic rank
+  parallel            = TRUE, # Enable parallel processing?
+  ncores              = 8, # Number of CPU cores for parallel processing
+  export_accepted     = FALSE # Export names linked to multiple accepted names
+)
+<<<<<<<<<<<< CELL: 81 TYPE: code >>>>>>>>>>>>
+query_names_gbif = query_names %>%
+  select(original_search, distance, notes, taxonID, scientificName, taxonRank,  taxonomicStatus, kingdom,
+    phylum, class, order , family,genus, specificEpithet )
+notes_sum_gbif = query_names_gbif%>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+notes_sum_gbif
+<<<<<<<<<<<< CELL: 82 TYPE: markdown >>>>>>>>>>>>
+Querying the Catalogue of Life (CoL) to resolve species not resolved by GBIF
+<<<<<<<<<<<< CELL: 83 TYPE: code >>>>>>>>>>>>
+not_accepted_gbif = query_names_gbif %>% filter(notes %in% c("heterotypic synonym", "heterotypic synonym | wasMisspelled",
+"homotypic synonym", "homotypic synonym | wasMisspelled", "multipleAccepted", "notFound", "synonym", "synonym | wasMisspelled", "NA",
+"proparte synonym","synonym", "synonym | wasMisspelled" ))
+
+summary_not_gbif = not_accepted_gbif %>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+summary_not_gbif
+<<<<<<<<<<<< CELL: 84 TYPE: code >>>>>>>>>>>>
+
+unique_names_col = unique(not_accepted_gbif$original_search)
+query_names_col <- bdc_query_names_taxadb(
+  sci_name            = unique_names_col,
+  replace_synonyms    = TRUE, # replace synonyms by accepted names?
+  suggest_names       = TRUE, # try to found a candidate name for misspelled names?
+  suggestion_distance = 0.8, # distance between the searched and suggested names
+  db                  = "col" , # taxonomic database
+  rank_name           = "Insecta", # a taxonomic rank
+  rank                = "class", # name of the taxonomic rank
+  parallel            = TRUE, # should parallel processing be used?
+  ncores              = 8, # number of cores to be used in the parallelization process 
+  export_accepted     = FALSE # save names linked to multiple accepted names
+)
+<<<<<<<<<<<< CELL: 85 TYPE: code >>>>>>>>>>>>
+query_names_col = query_names_col %>%
+  select(original_search, distance, notes, taxonID, scientificName, taxonRank,  taxonomicStatus, kingdom,
+    phylum, class, order , family,genus, specificEpithet )
+
+notes_sum_col = query_names_col%>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+notes_sum_col
+<<<<<<<<<<<< CELL: 86 TYPE: markdown >>>>>>>>>>>>
+Querying the Integrated Taxonomic Information System (ITIS) to resolve species not resolved by CoL
+<<<<<<<<<<<< CELL: 87 TYPE: code >>>>>>>>>>>>
+not_accepted_col = query_names_col %>% filter(notes %in% c("ambiguous synonym", "ambiguous synonym | wasMisspelled",
+"notFound", "accepted | wasMisspelled | replaceSynonym"))
+
+ 
+<<<<<<<<<<<< CELL: 88 TYPE: code >>>>>>>>>>>>
+
+unique_names_itis = unique(not_accepted_col$original_search)
+query_names_itis <- bdc_query_names_taxadb(
+  sci_name            = unique_names_itis,
+  replace_synonyms    = TRUE, # replace synonyms by accepted names?
+  suggest_names       = TRUE, # try to found a candidate name for misspelled names?
+  suggestion_distance = 0.8, # distance between the searched and suggested names
+  db                  = "itis" , # taxonomic database
+  rank_name           = "Insecta", # a taxonomic rank
+  rank                = "class", # name of the taxonomic rank
+  parallel            = TRUE, # should parallel processing be used?
+  ncores              = 8, # number of cores to be used in the parallelization process 
+  export_accepted     = FALSE # save names linked to multiple accepted names
+)
+<<<<<<<<<<<< CELL: 89 TYPE: code >>>>>>>>>>>>
+query_names_itis = query_names_itis %>%
+  select(original_search, distance, notes, taxonID, scientificName, taxonRank,  taxonomicStatus, kingdom,
+    phylum, class, order , family,genus, specificEpithet )
+
+notes_sum_itis = query_names_itis%>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+notes_sum_itis
+<<<<<<<<<<<< CELL: 90 TYPE: markdown >>>>>>>>>>>>
+Combine all taxonomic query results
+<<<<<<<<<<<< CELL: 91 TYPE: code >>>>>>>>>>>>
+querys_join = rbind(query_names_gbif, query_names_col, query_names_itis) 
+querys_join = querys_join%>%distinct(scientificName, .keep_all = TRUE)
+summary_taxon_querys = querys_join%>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+summary_taxon_querys
+<<<<<<<<<<<< CELL: 92 TYPE: code >>>>>>>>>>>>
+database_10$id_record = seq(1:nrow(database_10))
+database_11 = database_10 %>% left_join(querys_join, by = c("names_clean" = "original_search")) %>% distinct(id_record, .keep_all = TRUE) # Merge cleaned data
+database_11_sum_notes = database_11%>%
+  group_by(notes)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+
+database_11 = database_11 %>% 
+  filter(class.y == "Insecta")%>%
+  filter(notes %in% c("accepted", "multipleAccepted" , "accepted | replaceSynonym", 
+        "accepted | wasMisspelled", "accepted | wasMisspelled | replaceSynonym","multipleAccepted" ,"provisionally accepted | wasMisspelled"
+        ,  "provisionally accepted"  ))%>%
+  filter(taxonRank == c("species"))%>%
+  filter(!is.na(taxonRank))%>%
+  filter(taxonRank != "")
+dimension_11 = database_11%>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+
+dimension_11
+<<<<<<<<<<<< CELL: 93 TYPE: code >>>>>>>>>>>>
+len_11= sum(dimension_11$n)
+cat("Dataset size:", len_11)
+<<<<<<<<<<<< CELL: 94 TYPE: markdown >>>>>>>>>>>>
+## 3.12. Filter out invasive species
+<<<<<<<<<<<< CELL: 95 TYPE: markdown >>>>>>>>>>>>
+https://zenodo.org/records/5245302
+<<<<<<<<<<<< CELL: 96 TYPE: code >>>>>>>>>>>>
+
+
+invasive_sp = read.csv("Data/Records/invasive_sp.csv", sep = ";")
+names_sp_invasive = unique(invasive_sp$genus_species)
+database_12 <- database_11 %>%
+  filter(!scientificName.y %in% names_sp_invasive)
+
+dimension_12 = database_12%>%
+  group_by(database_name)%>%
+  count()%>%
+  ungroup()%>%
+  mutate(prop = (n/sum(n))*100)
+len_12= sum(dimension_12$n)
+cat("Dataset size:", len_12)
+<<<<<<<<<<<< CELL: 97 TYPE: markdown >>>>>>>>>>>>
+# 4. Export Cleaned Results
+<<<<<<<<<<<< CELL: 98 TYPE: code >>>>>>>>>>>>
+database_final_export = database_12 %>%select("id_record","database_name" , "database_id","occurrenceID",  "basisOfRecord" ,"verbatimEventDate",
+"identifiedBy" , "recordedBy" ,  "year" , "institutionCode" , "taxonRank", "class.y", "order",  "family.y" , "genus.y", "specificEpithet" ,
+"scientificName.y" ,  "decimalLatitude"  , "decimalLongitude"    
+ )
+
+colnames(database_final_export) = c("id_record","database_name" , "database_id","occurrenceID",  "basisOfRecord" ,"verbatimEventDate",
+"identifiedBy" , "recordedBy" ,  "year" , "institutionCode" , "taxonRank", "class", "order",  "family" , "genus", "specificEpithet" ,
+"scientificName" ,  "decimalLatitude"  , "decimalLongitude"
+ )
+
+write.csv(database_final_export, "Data/Records/insects_records_clean.csv", row.names = FALSE)
+<<<<<<<<<<<< CELL: 99 TYPE: markdown >>>>>>>>>>>>
+# 5. Cleaning Summary
+<<<<<<<<<<<< CELL: 100 TYPE: code >>>>>>>>>>>>
+len_data = c(len_0, len_1, len_2, len_3, len_4, len_5, len_6, len_7, len_8, len_9, len_10, len_11, len_12)
+steps = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13")
+# Create vectors for the data frame
+training <- c("Strength", "Stamina", "Other")
+pulse <- c(100, 150, 120)
+duration <- c(60, 30, 45)
+
+# Create the data frame
+cleaning_data <- data.frame(
+  len_data = len_data,
+  steps = steps)
+
+  cleaning_data
+
+write.csv(cleaning_data, "Data/Records/cleaning_data.csv", row.names = FALSE)
+<<<<<<<<<<<< FILE: 1_Sampling_coverage.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: markdown >>>>>>>>>>>>
+# **Spatial Patterns of insect Diversity in continetal Ecuador**
+<<<<<<<<<<<< CELL: 1 TYPE: markdown >>>>>>>>>>>>
+## **Completeness Analysis**
+<<<<<<<<<<<< CELL: 2 TYPE: markdown >>>>>>>>>>>>
+Author: Daning Montaño - Ocampo
+<<<<<<<<<<<< CELL: 3 TYPE: markdown >>>>>>>>>>>>
+# **1. Packages and libraries**
+<<<<<<<<<<<< CELL: 4 TYPE: code >>>>>>>>>>>>
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(iNEXT)
+library(tidyr)
+library(vegan)
+library(tibble)
+#library(doParallel)
+#
+<<<<<<<<<<<< CELL: 5 TYPE: markdown >>>>>>>>>>>>
+# 2. Load Cleaned Data and Grids
+<<<<<<<<<<<< CELL: 6 TYPE: code >>>>>>>>>>>>
+insects_records = read.csv("Data/Records/insects_records_clean.csv")%>%
+  filter(taxonRank == c("species"))
+
+# Convert to spatial sf object
+insects_records_sf = st_as_sf(insects_records, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
+<<<<<<<<<<<< CELL: 7 TYPE: code >>>>>>>>>>>>
+grid_10km = st_read("Data/shp/grid_10km.shp")
+grid_10km$id_10km = grid_10km$id
+<<<<<<<<<<<< CELL: 8 TYPE: markdown >>>>>>>>>>>>
+# 3. Join Point Data to the Spatial Grids
+<<<<<<<<<<<< CELL: 9 TYPE: markdown >>>>>>>>>>>>
+By spatially joining the points, we extract the grid cell IDs. This allows us to perform analyses at the cell level and easily map results back to the grid.
+<<<<<<<<<<<< CELL: 10 TYPE: code >>>>>>>>>>>>
+recors_grid_10km <- st_join(
+  insects_records_sf,
+  grid_10km %>% select(id),   
+  join = st_within                              # inside polygons
+)
+
+head(recors_grid_10km)
+<<<<<<<<<<<< CELL: 11 TYPE: markdown >>>>>>>>>>>>
+# 4. Record Density per 10 km Grid Cell
+<<<<<<<<<<<< CELL: 12 TYPE: markdown >>>>>>>>>>>>
+We calculate the total number of records per 10 km grid cell using the grid ID.
+<<<<<<<<<<<< CELL: 13 TYPE: code >>>>>>>>>>>>
+total_records_per_grid = recors_grid_10km %>%
+  as.data.frame() %>%
+  group_by(id)%>%
+  summarise(Total_records = n()) %>%
+  as.data.frame()
+hist(total_records_per_grid$Total_records, breaks = 50)
+<<<<<<<<<<<< CELL: 14 TYPE: markdown >>>>>>>>>>>>
+Join the calculated record density back to the 10 km grid.
+<<<<<<<<<<<< CELL: 15 TYPE: code >>>>>>>>>>>>
+grid_10km = grid_10km%>% 
+  left_join(total_records_per_grid, by = "id")
+
+ggplot(grid_10km) +
+  geom_sf(aes(fill = Total_records), color = "grey30", size = 0.1) +
+  scale_fill_viridis_c(option = "mako") +
+  theme_minimal()
+<<<<<<<<<<<< CELL: 16 TYPE: markdown >>>>>>>>>>>>
+# 5. Species Richness per 10 km Grid Cell
+<<<<<<<<<<<< CELL: 17 TYPE: code >>>>>>>>>>>>
+total_sp_per_grid = recors_grid_10km %>%
+  as.data.frame() %>%
+  group_by(id)%>%
+  distinct(scientificName) %>%
+  summarise(Total_sp = n()) %>%
+  as.data.frame()
+hist(total_sp_per_grid$Total_sp)
+<<<<<<<<<<<< CELL: 18 TYPE: code >>>>>>>>>>>>
+grid_10km = grid_10km%>% 
+  left_join(total_sp_per_grid, by = "id")
+ggplot(grid_10km) +
+  geom_sf(aes(fill = Total_sp), color = "grey30", size = 0.1) +
+  scale_fill_viridis_c(option = "mako") +
+  theme_minimal()
+<<<<<<<<<<<< CELL: 19 TYPE: markdown >>>>>>>>>>>>
+## 5.1. Correlation between Records and Species Richness
+<<<<<<<<<<<< CELL: 20 TYPE: code >>>>>>>>>>>>
+cor(grid_10km$Total_records, grid_10km$Total_sp, method = "spearman", use = "complete.obs")
+<<<<<<<<<<<< CELL: 21 TYPE: code >>>>>>>>>>>>
+ggplot(grid_10km, aes(x = Total_records, y = Total_sp)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred", fill = "pink") +
+  theme_minimal() +
+  labs(
+    x = "Total records",
+    y = "Total species",
+    title = "Relationship between records and species"
+  )
+<<<<<<<<<<<< CELL: 22 TYPE: markdown >>>>>>>>>>>>
+# 6. Sampling Completeness
+<<<<<<<<<<<< CELL: 23 TYPE: markdown >>>>>>>>>>>>
+## 6.1. Completeness at the Country Level
+<<<<<<<<<<<< CELL: 24 TYPE: markdown >>>>>>>>>>>>
+Calculate sampling completeness for the entire country using incidence data, where each 10 km grid cell represents a sampling unit.
+<<<<<<<<<<<< CELL: 25 TYPE: code >>>>>>>>>>>>
+ecu_incidens_matrix <- recors_grid_10km %>%
+  as.data.frame() %>%
+  distinct(id, scientificName) |>          # 1 value per species-unit combination
+  mutate(val = 1L) |>
+  pivot_wider(names_from = scientificName, values_from = val, values_fill = 0) |>
+  arrange(id)
+ids_unidades_ecu <- ecu_incidens_matrix$id
+
+# Remove the ID column to keep only presence/absence (0/1) per species
+incidences_ecu_df <- ecu_incidens_matrix %>% dplyr::select(-id)
+
+# Construct the incidence matrix for iNEXT
+inext_in_ecu <- list(ensamblaje = as.data.frame(t(incidences_ecu_df)))
+
+
+<<<<<<<<<<<< CELL: 26 TYPE: markdown >>>>>>>>>>>>
+Use the iNEXT function to estimate sampling coverage in Ecuador, extracting species richness (q=0) and sample coverage.
+<<<<<<<<<<<< CELL: 27 TYPE: code >>>>>>>>>>>>
+result_inext_ecu <- iNEXT(inext_in_ecu, q = 0, datatype = "incidence_raw", se = TRUE, conf = 0.95,nboot= 100 )
+result_inext_ecu
+<<<<<<<<<<<< CELL: 28 TYPE: code >>>>>>>>>>>>
+info_inext_ecu <- DataInfo(inext_in_ecu, datatype = "incidence_raw")  # Column SC = sample coverage; T = number of sampling units
+info_inext_ecu
+<<<<<<<<<<<< CELL: 29 TYPE: code >>>>>>>>>>>>
+plot_units_sc <- ggiNEXT(result_inext_ecu, type = 2) + labs(title = "Sample coverage - Ecuador")
+plot_units_sc
+<<<<<<<<<<<< CELL: 30 TYPE: code >>>>>>>>>>>>
+plot_units_richness <- ggiNEXT(result_inext_ecu, type = 1) + labs(title = "Units vs Richness")
+plot_units_richness
+<<<<<<<<<<<< CELL: 31 TYPE: markdown >>>>>>>>>>>>
+## 6.2. Completeness at the Grid Cell Level
+<<<<<<<<<<<< CELL: 32 TYPE: markdown >>>>>>>>>>>>
+### 6.2.1. Sample Coverage Estimation
+<<<<<<<<<<<< CELL: 33 TYPE: code >>>>>>>>>>>>
+recors_grid_10km
+<<<<<<<<<<<< CELL: 34 TYPE: code >>>>>>>>>>>>
+# Unique 10-km IDs
+cid_10km <- unique(recors_grid_10km$id)
+
+# Initialize results data frame (abundance-based)
+results_s_cov <- data.frame(
+  id_10km = integer(),
+  Samplig_coverage = numeric(),  # Observed SC (abundance)
+  n_records = numeric(),         # Total number of records (n)
+  sp_obs = numeric(),         # S.obs
+  f1 = numeric(),                # Singletons (f1)
+  f2 = numeric(),                # Doubletons (f2)
+  sc_ext = numeric(),            # SC at the asymptotic end of the curve
+  n_records_ext = numeric(),     # Sample size (n) at the asymptotic end
+  sp_ext = numeric(),         # Estimated richness (qD) at the asymptotic end
+  stringsAsFactors = FALSE
+)
+
+# Progress bar
+pb <- txtProgressBar(min = 0, max = length(cid_10km), style = 3)
+count <- 0
+
+for (i in cid_10km) {
+
+  # 1) Filter records within the current 10 km cell
+  records_by_id <- recors_grid_10km %>%
+    dplyr::filter(id == i)
+
+  # 2) Count records per species to build the abundance vector
+  #    - Filter out empty scientific names
+  #    - Keep species with abundance > 0
+  abund_tbl <- records_by_id %>%
+    dplyr::filter(!is.na(scientificName)) %>%
+    dplyr::count(scientificName, name = "n")
+
+  abund_vec <- abund_tbl$n
+  names(abund_vec) <- abund_tbl$scientificName
+  abund_vec <- abund_vec[abund_vec > 0]
+
+  # 3) Handle cases with insufficient data
+  if (length(abund_vec) == 0L) {
+    sampl_result <- data.frame(
+      Samplig_coverage = NA_real_,
+      n_records = NA_real_,
+      sp_obs = NA_real_,
+      f1 = NA_real_,
+      f2 = NA_real_,
+      sc_ext = NA_real_,
+      n_records_ext = NA_real_,
+      sp_ext = NA_real_,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    # 4) Run iNEXT using abundance data (species accumulation based on records)
+    sampl_result <- tryCatch({
+      res_abund <- iNEXT(
+        list(ensamblaje = abund_vec),
+        q = 0,
+        datatype = "abundance",
+        se = FALSE
+      )
+
+      # Extract observed data info
+      sc_obs <- res_abund$DataInfo$SC
+      n_obs  <- res_abund$DataInfo$n
+      s_obs  <- res_abund$DataInfo$S.obs
+      f1     <- res_abund$DataInfo$f1
+      f2     <- res_abund$DataInfo$f2
+
+      # Extract asymptotic sample coverage and estimated richness
+      cb <- res_abund$iNextEst$coverage_based
+      sc_ext <- if (!is.null(cb) && nrow(cb) > 0) tail(cb$SC, 1) else NA_real_
+      qd_ext <- if (!is.null(cb) && nrow(cb) > 0) tail(cb$qD, 1) else NA_real_
+
+      # Extract sample size at the asymptotic end
+      sb <- res_abund$iNextEst$size_based
+      n_ext <- if (!is.null(sb) && nrow(sb) > 0) tail(sb$m, 1) else NA_real_
+
+      data.frame(
+        Samplig_coverage = sc_obs,
+        n_records = n_obs,
+        sp_obs = s_obs,
+        f1 = f1,
+        f2 = f2,
+        sc_ext = sc_ext,
+        n_records_ext = n_ext,
+        sp_ext = round(qd_ext, 0),
+        stringsAsFactors = FALSE
+      )
+    }, error = function(e) {
+      data.frame(
+        Samplig_coverage = NA_real_,
+        n_records = NA_real_,
+        sp_obs = NA_real_,
+        f1 = NA_real_,
+        f2 = NA_real_,
+        sc_ext = NA_real_,
+        n_records_ext = NA_real_,
+        sp_ext = NA_real_,
+        stringsAsFactors = FALSE
+      )
+    })
+  }
+
+  # 5) Append results per 10 km cell
+  results_s_cov <- rbind(
+    results_s_cov,
+    cbind(data.frame(id_10km = i, stringsAsFactors = FALSE), sampl_result)
+  )
+
+  count <- count + 1
+  setTxtProgressBar(pb, count)
+}
+
+# Close progress bar
+close(pb)
+
+<<<<<<<<<<<< CELL: 35 TYPE: code >>>>>>>>>>>>
+results_s_cov
+<<<<<<<<<<<< CELL: 36 TYPE: markdown >>>>>>>>>>>>
+### 6.2.4. Join Sample Coverage with 10 km Grid
+<<<<<<<<<<<< CELL: 37 TYPE: code >>>>>>>>>>>>
+results_sampling_effor =  grid_10km%>%
+  left_join(results_s_cov, by = "id_10km") 
+
+
+results_sampling_effor_filter  = results_sampling_effor %>% filter(Total_records >= 100 )%>%
+    filter(Samplig_coverage >= 0.7 )
+
+ggplot(results_sampling_effor_filter) +
+  geom_sf(aes(fill = Samplig_coverage ), color = "grey30", size = 0.1) +
+  scale_fill_viridis_c(option = "mako") +
+  theme_minimal()
+<<<<<<<<<<<< CELL: 38 TYPE: code >>>>>>>>>>>>
+results_sampling_effor_filter
+<<<<<<<<<<<< CELL: 39 TYPE: markdown >>>>>>>>>>>>
+# 7. Export Results
+<<<<<<<<<<<< CELL: 40 TYPE: code >>>>>>>>>>>>
+
+ st_write(results_sampling_effor, "Results/shp/grid_10km_sampling.shp", append=FALSE)
+ st_write(results_sampling_effor_filter, "Results/shp/grid_10km_sampling_filter.shp", append=FALSE)
+<<<<<<<<<<<< FILE: 2_Alpha_diversity.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: markdown >>>>>>>>>>>>
+# GAM Modeling - Alpha Diversity
+<<<<<<<<<<<< CELL: 1 TYPE: markdown >>>>>>>>>>>>
+# 1. Packages and Libraries
+<<<<<<<<<<<< CELL: 2 TYPE: code >>>>>>>>>>>>
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(terra)
+library(patchwork)
+
+### Data 
+
+<<<<<<<<<<<< CELL: 3 TYPE: markdown >>>>>>>>>>>>
+# 2. Load Data
+<<<<<<<<<<<< CELL: 4 TYPE: code >>>>>>>>>>>>
+grid_10_km = st_read( "Results/shp/grid_10km_sampling_filter.shp")
+dem_30m = rast("Data/raster/dem_30m.tif")
+ecu = st_read("Data/Shp/ecuador_limits.shp")
+<<<<<<<<<<<< CELL: 5 TYPE: markdown >>>>>>>>>>>>
+## Extract DEM data
+<<<<<<<<<<<< CELL: 6 TYPE: code >>>>>>>>>>>>
+# Ensure matching CRS
+dem_30m <- project(dem_30m, st_crs(grid_10_km)$wkt)
+grid_vect <- vect(grid_10_km)
+# Extract elevation values per grid cell
+ext_vals <- extract(dem_30m, grid_vect)
+
+# Calculate statistics per grid ID
+stats_elev <- ext_vals %>%
+  group_by(ID) %>%
+  summarise(
+    elev_mean = mean(elevation, na.rm = TRUE)
+  )
+grid_10_km$ID = seq(1:dim(grid_10_km)[1])
+grid_10km_elev <- grid_10_km %>%
+  left_join(stats_elev, by = c("ID" = "ID"))
+centroids <- st_centroid(grid_10km_elev)
+
+# Extract coordinates as X and Y columns
+coords <- st_coordinates(centroids)
+
+grid_10km_elev <- grid_10km_elev %>%
+  mutate(
+    centroid_x = coords[,1],
+    centroid_y = coords[,2]
+  )
+
+head(grid_10km_elev)
+<<<<<<<<<<<< CELL: 7 TYPE: markdown >>>>>>>>>>>>
+## Create Data Frame
+<<<<<<<<<<<< CELL: 8 TYPE: code >>>>>>>>>>>>
+df <- grid_10km_elev %>% st_drop_geometry()
+
+# variables
+df$Totl_sp
+df$elev_mean
+df$centroid_x
+df$centroid_y
+<<<<<<<<<<<< CELL: 9 TYPE: markdown >>>>>>>>>>>>
+# 3. Statistical Modeling
+<<<<<<<<<<<< CELL: 10 TYPE: markdown >>>>>>>>>>>>
+## 3.1. GAM - Alpha Diversity
+<<<<<<<<<<<< CELL: 11 TYPE: markdown >>>>>>>>>>>>
+### Model
+<<<<<<<<<<<< CELL: 12 TYPE: markdown >>>>>>>>>>>>
+The GAM model with a Negative Binomial distribution detects a significant relationship between species richness and the evaluated predictors. Elevation shows a moderate but statistically significant non-linear effect (edf ≈ 3.0, p = 0.00031), while the spatial effect represented by the centroid coordinates presents a more complex and highly significant contribution (edf ≈ 14.6, p < 2e-16), indicating structured spatial variation in richness. The intercept is high, consistent with an elevated average number of species per cell. The model explains 36.8% of the deviance and presents a modest adjusted R² (0.165), suggesting that, although it captures key patterns, there remains unexplained variability that could be associated with other environmental or sampling factors.
+<<<<<<<<<<<< CELL: 13 TYPE: code >>>>>>>>>>>>
+m_gam <- gam(
+  Totl_sp ~ s(elev_mean) +
+            s(centroid_x, centroid_y, bs = "tp"),
+  family = nb(link = "log"),
+  data = df,
+  method = "REML"
+)
+summary(m_gam)
+<<<<<<<<<<<< CELL: 14 TYPE: markdown >>>>>>>>>>>>
+### Checks
+<<<<<<<<<<<< CELL: 15 TYPE: markdown >>>>>>>>>>>>
+The Q–Q plot shows moderate deviations from the theoretical line at extreme quantiles, indicating slightly heavier tails than expected under the model assumptions, but without strong evidence of systematic violations. The plot of residuals against the linear predictor exhibits homogeneous dispersion with no defined patterns, suggesting the absence of significant heteroscedasticity and proper specification of the link function. The histogram confirms an approximately symmetrical distribution of residuals, with slight positive skewness compatible with count models. Overall, the diagnostics indicate that the model is adequate and does not present serious fitting issues, although there is some residual variability that is not fully captured.
+<<<<<<<<<<<< CELL: 16 TYPE: code >>>>>>>>>>>>
+gam.check(m_gam)
+<<<<<<<<<<<< CELL: 17 TYPE: code >>>>>>>>>>>>
+shapiro.test( m_gam$residuals)
+<<<<<<<<<<<< CELL: 18 TYPE: markdown >>>>>>>>>>>>
+### Concurvity
+<<<<<<<<<<<< CELL: 19 TYPE: markdown >>>>>>>>>>>>
+Concurvity assesses the degree of dependency among the smooth effects in the model. High values indicate that one term can be partially explained by another, reducing the model's ability to estimate independent effects. In our results, the spatial term s(centroid_x, centroid_y) shows low observed concurvity (≈ 0.247) and an even lower estimated concurvity (≈ 0.149), indicating reasonable independence from the rest of the model. The elevation smooth presents moderate observed concurvity (≈ 0.499), far from problematic levels. Overall, there are no signs of severe overlap between predictors, and the effects are stably estimated.
+<<<<<<<<<<<< CELL: 20 TYPE: code >>>>>>>>>>>>
+# Calculate concurvity
+concurvity_results <- concurvity(m_gam, full = TRUE)
+matriz_observed <- concurvity_results["observed", ]
+matriz_observed
+<<<<<<<<<<<< CELL: 21 TYPE: markdown >>>>>>>>>>>>
+### Moran test
+<<<<<<<<<<<< CELL: 22 TYPE: markdown >>>>>>>>>>>>
+Moran's I test applied to the residuals indicates the absence of spatial autocorrelation. The observed Moran's I value is very close to zero (–0.0269), its standard deviation is low (–0.57), and the high p-value (0.716) confirms that the spatial structure of the residuals does not differ from what would be expected under randomness. The theoretical expectation of the index (–0.0046) is virtually identical to the observed value, reinforcing that the model does not leave systematic spatial patterns uncaptured.
+<<<<<<<<<<<< CELL: 23 TYPE: code >>>>>>>>>>>>
+library(spdep)
+
+coords <- cbind(df$centroid_x, df$centroid_y)
+nb_obj <- knn2nb(knearneigh(coords, k=5))
+lw <- nb2listw(nb_obj)
+
+moran.test(residuals(m_gam), lw)
+<<<<<<<<<<<< CELL: 24 TYPE: markdown >>>>>>>>>>>>
+### Plot predictions
+<<<<<<<<<<<< CELL: 25 TYPE: markdown >>>>>>>>>>>>
+
+
+The elevation effect shows a unimodal relationship, with higher richness at intermediate elevations and a decrease towards the extremes. Coordinate X presents a marked spatial gradient, with a localized peak suggesting strong geographic variation along the longitudinal axis. Coordinate Y also displays a non-linear pattern, highlighting specific zones with higher richness along the latitudinal axis. Together, the spatial effects capture substantial geographic heterogeneity beyond the effect of elevation.
+<<<<<<<<<<<< CELL: 26 TYPE: code >>>>>>>>>>>>
+
+# ============================================================
+# 1. Partial effect of elev_mean
+# ============================================================
+
+new_elev <- data.frame(
+    elev_mean  = seq(min(df$elev_mean), max(df$elev_mean), length.out = 200),
+    centroid_x = mean(df$centroid_x),
+    centroid_y = mean(df$centroid_y)
+)
+
+p_elev <- predict(m_gam, newdata = new_elev, type = "link", se.fit = TRUE)
+
+new_elev$fit   <- exp(p_elev$fit)
+new_elev$lower <- exp(p_elev$fit - 2*p_elev$se.fit)
+new_elev$upper <- exp(p_elev$fit + 2*p_elev$se.fit)
+
+g1 <- ggplot(new_elev, aes(elev_mean, fit)) +
+    geom_line() +
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+    labs(x = "Elevation", y = "Richness (predicted)") +
+    ggtitle("Partial effect of elev_mean")
+
+
+# ============================================================
+# 2. Partial effect of centroid_x
+# ============================================================
+
+new_x <- data.frame(
+    centroid_x = seq(min(df$centroid_x), max(df$centroid_x), length.out = 200),
+    centroid_y = mean(df$centroid_y),
+    elev_mean  = mean(df$elev_mean)
+)
+
+p_x <- predict(m_gam, newdata = new_x, type = "link", se.fit = TRUE)
+
+new_x$fit   <- exp(p_x$fit)
+new_x$lower <- exp(p_x$fit - 2*p_x$se.fit)
+new_x$upper <- exp(p_x$fit + 2*p_x$se.fit)
+
+g2 <- ggplot(new_x, aes(centroid_x, fit)) +
+    geom_line() +
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+    labs(x = "X Coordinate", y = "Richness (predicted)") +
+    ggtitle("Partial effect of centroid_x")
+
+
+# ============================================================
+# 3. Partial effect of centroid_y
+# ============================================================
+
+new_y <- data.frame(
+    centroid_y = seq(min(df$centroid_y), max(df$centroid_y), length.out = 200),
+    centroid_x = mean(df$centroid_x),
+    elev_mean  = mean(df$elev_mean)
+)
+
+p_y <- predict(m_gam, newdata = new_y, type = "link", se.fit = TRUE)
+
+new_y$fit   <- exp(p_y$fit)
+new_y$lower <- exp(p_y$fit - 2*p_y$se.fit)
+new_y$upper <- exp(p_y$fit + 2*p_y$se.fit)
+
+g3 <- ggplot(new_y, aes(centroid_y, fit)) +
+    geom_line() +
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+    labs(x = "Y Coordinate", y = "Richness (predicted)") +
+    ggtitle("Partial effect of centroid_y")
+
+
+# ============================================================
+# 4. Combined final figure
+# ============================================================
+
+(g1 | g2 | g3)
+<<<<<<<<<<<< CELL: 27 TYPE: code >>>>>>>>>>>>
+out_dir <- "Results/Reports/GAMs"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+saveRDS(
+  list(new_elev = new_elev, new_x = new_x, new_y = new_y),
+  file = file.path(out_dir, "partial_effects_alpha.rds")
+)
+<<<<<<<<<<<< CELL: 28 TYPE: markdown >>>>>>>>>>>>
+## 3.2. Predicted Alpha Diversity
+<<<<<<<<<<<< CELL: 29 TYPE: code >>>>>>>>>>>>
+
+# =========================================================
+# 1. Load Ecuador limits and DEM in WGS84
+# =========================================================
+
+ecu <- st_read("Data/Shp/ecuador_limits.shp") |>
+  st_transform(4326) |>
+  st_make_valid()
+
+ecu_v <- vect(ecu)
+
+dem_30m <- rast("Data/raster/dem_30m.tif")
+dem_30m <- project(dem_30m, "EPSG:4326")
+
+
+# =========================================================
+# 2. Create a blank 10 km raster covering all of Ecuador
+# =========================================================
+
+ext_ecu <- ext(ecu_v)
+
+# Resolution equivalent to 10 km
+res_deg <- 10000 / 111320     # ≈ 0.089932°
+
+r10 <- rast(
+  extent = ext_ecu,
+  resolution = res_deg,
+  crs = "EPSG:4326",
+  nlyrs = 1
+)
+names(r10) <- "prediction"
+
+
+# =========================================================
+# 3. Extract coordinates of each cell
+# =========================================================
+
+coords <- crds(r10, df = TRUE)
+colnames(coords) <- c("centroid_x", "centroid_y")
+
+
+# =========================================================
+# 4. Extract elevation from DEM
+# =========================================================
+
+elev_df <- extract(dem_30m, coords[, c("centroid_x", "centroid_y")])
+df_pred <- cbind(coords, elev_mean = elev_df[,2])
+
+# Remove NA values
+df_pred <- df_pred[!is.na(df_pred$elev_mean), ]
+
+
+# =========================================================
+# 5. Predict GAM across the entire study area
+# =========================================================
+
+pred_vals <- predict(
+  m_gam,
+  newdata = df_pred,
+  type = "response"
+)
+
+df_pred$pred <- pred_vals
+
+
+# =========================================================
+# 6. Insert predictions into the raster
+# =========================================================
+
+r_pred <- r10
+
+cell_ids <- cellFromXY(r_pred, df_pred[, c("centroid_x", "centroid_y")])
+
+vals <- rep(NA, ncell(r_pred))
+vals[cell_ids] <- df_pred$pred
+
+r_pred <- setValues(r_pred, vals)
+
+
+# =========================================================
+# 7. Mask: Restrict predictions to Ecuador limits
+# =========================================================
+
+r_pred_ecu <- mask(r_pred, ecu_v)
+
+
+<<<<<<<<<<<< CELL: 30 TYPE: code >>>>>>>>>>>>
+plot(r_pred_ecu)
+<<<<<<<<<<<< CELL: 31 TYPE: markdown >>>>>>>>>>>>
+# 4. Export Results
+<<<<<<<<<<<< CELL: 32 TYPE: code >>>>>>>>>>>>
+# =========================================================
+# 8. Save the final raster
+# =========================================================
+
+writeRaster(
+  r_pred_ecu,
+  "Results/raster/GAM_prediction_alpha.tif",
+  overwrite = TRUE
+)
+<<<<<<<<<<<< FILE: 3_Beta_diversity.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: markdown >>>>>>>>>>>>
+# GAM Modeling - Beta Diversity
+<<<<<<<<<<<< CELL: 1 TYPE: markdown >>>>>>>>>>>>
+# 1. Packages and Libraries
+<<<<<<<<<<<< CELL: 2 TYPE: code >>>>>>>>>>>>
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(terra)
+library(patchwork)
+library(tidyr)
+library(betapart)
+library(vegan)
+library(cluster)  # For clustering and silhouette index calculation
+library(factoextra)  # For elbow method and silhouette
+library(NbClust)
+library(raster)
+<<<<<<<<<<<< CELL: 3 TYPE: markdown >>>>>>>>>>>>
+# 2. Load data
+<<<<<<<<<<<< CELL: 4 TYPE: code >>>>>>>>>>>>
+grid_10_km = st_read( "Results/shp/grid_10km_sampling_filter.shp")
+dem_30m = rast("Data/raster/dem_30m.tif")
+ecu = st_read("Data/Shp/ecuador_limits.shp")
+
+insects_records = read.csv("Data/Records/insects_records_clean.csv")%>%
+  filter(taxonRank == c("species"))
+
+# Transform to sf object
+insects_records_sf = st_as_sf(insects_records, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
+<<<<<<<<<<<< CELL: 5 TYPE: markdown >>>>>>>>>>>>
+## 2.1. Extract DEM Data
+<<<<<<<<<<<< CELL: 6 TYPE: code >>>>>>>>>>>>
+# Ensure matching CRS
+dem_30m <- project(dem_30m, st_crs(grid_10_km)$wkt)
+grid_vect <- vect(grid_10_km)
+# Extract elevation values per grid cell
+ext_vals <- terra::extract(dem_30m, grid_vect)
+
+# Calculate statistics per grid ID
+stats_elev <- ext_vals %>%
+  group_by(ID) %>%
+  summarise(
+    elev_mean = mean(elevation, na.rm = TRUE)
+  )
+grid_10_km$ID = seq(1:dim(grid_10_km)[1])
+grid_10km_elev <- grid_10_km %>%
+  left_join(stats_elev, by = c("ID" = "ID"))
+centroids <- st_centroid(grid_10km_elev)
+
+# Extract coordinates as X and Y columns
+coords <- st_coordinates(centroids)
+
+grid_10km_elev <- grid_10km_elev %>%
+  mutate(
+    centroid_x = coords[,1],
+    centroid_y = coords[,2]
+  )
+
+head(grid_10km_elev)
+<<<<<<<<<<<< CELL: 7 TYPE: markdown >>>>>>>>>>>>
+# 3. Beta Diversity
+<<<<<<<<<<<< CELL: 8 TYPE: markdown >>>>>>>>>>>>
+## 3.1. Presence/Absence Matrix
+<<<<<<<<<<<< CELL: 9 TYPE: markdown >>>>>>>>>>>>
+Records inside high-sampling-coverage grid cells
+<<<<<<<<<<<< CELL: 10 TYPE: code >>>>>>>>>>>>
+insects_in_grid <- st_join(
+  insects_records_sf,
+  grid_10_km,
+  join = st_within,
+  left = FALSE        # Keep only points within cells
+)
+
+# Extract coordinates to X, Y columns
+coords <- st_coordinates(insects_in_grid)
+
+insects_in_grid_out <- insects_in_grid %>%
+  mutate(
+    centroid_x= coords[,1],
+    centroid_y = coords[,2]
+  ) %>%
+  st_drop_geometry()   # Drop spatial geometry for tabular format
+
+# Final result
+print(head(insects_in_grid_out))
+<<<<<<<<<<<< CELL: 11 TYPE: markdown >>>>>>>>>>>>
+Generate presence/absence table.
+<<<<<<<<<<<< CELL: 12 TYPE: code >>>>>>>>>>>>
+
+Table_presence= table(insects_in_grid_out$id_10km, insects_in_grid_out$scientificName) ### Table for Beta Diversity analysis 
+
+Table_presence[Table_presence>1]<-1
+
+print(Table_presence[1:10,1:20])
+<<<<<<<<<<<< CELL: 13 TYPE: markdown >>>>>>>>>>>>
+## 3.2. Jaccard metric
+<<<<<<<<<<<< CELL: 14 TYPE: code >>>>>>>>>>>>
+set.seed(593)
+##### Beta diversity calculation
+betaDiv= beta.pair(Table_presence, index.family="jaccard") ## Perform beta diversity analysis
+## using Jaccard index (presence/absence) with partitioning
+
+
+disimilarity= betaDiv$beta.jac
+
+boxplot(disimilarity)
+<<<<<<<<<<<< CELL: 15 TYPE: markdown >>>>>>>>>>>>
+## 3.2. NMDS
+<<<<<<<<<<<< CELL: 16 TYPE: code >>>>>>>>>>>>
+
+nmds_scores1= monoMDS(stepacross(disimilarity), y = cmdscale(disimilarity, k=1),k = 1, model = "global", threshold = 0.8, maxit = 1000, 
+                     
+                     weakties = TRUE, stress = 1, scaling = TRUE, pc = TRUE, smin = 1e-4, sfgrmin = 1e-7, sratmax=0.99999) 
+<<<<<<<<<<<< CELL: 17 TYPE: code >>>>>>>>>>>>
+stressplot(nmds_scores1, cex.lab=0.8, cex.axis=0.8, cex.main=0.8, cex.sub=0.8) # An R^2 of 91% is explained using two axes
+<<<<<<<<<<<< CELL: 18 TYPE: code >>>>>>>>>>>>
+
+nmds_scores= monoMDS(stepacross(disimilarity), y = cmdscale(disimilarity, k=2),k = 2, model = "global", threshold = 0.8, maxit = 1000, 
+                     
+                     weakties = TRUE, stress = 1, scaling = TRUE, pc = TRUE, smin = 1e-4, sfgrmin = 1e-7, sratmax=0.99999) 
+
+
+plot(nmds_scores)
+<<<<<<<<<<<< CELL: 19 TYPE: markdown >>>>>>>>>>>>
+With NMDS, we captured 91.7% of the variance in the dissimilarity matrix.
+<<<<<<<<<<<< CELL: 20 TYPE: code >>>>>>>>>>>>
+
+stressplot(nmds_scores, cex.lab=0.8, cex.axis=0.8, cex.main=0.8, cex.sub=0.8) # An R^2 of 91% is explained using two axes
+
+<<<<<<<<<<<< CELL: 21 TYPE: code >>>>>>>>>>>>
+
+scores_1= scores(nmds_scores$points)
+
+scores_1= as.data.frame(scores_1)
+head(scores_1)
+<<<<<<<<<<<< CELL: 22 TYPE: markdown >>>>>>>>>>>>
+## 3.3. Join NMDS Scores to Grids
+<<<<<<<<<<<< CELL: 23 TYPE: code >>>>>>>>>>>>
+grid_10km_elev["NMDS1"] = scores_1[,1]
+grid_10km_elev["NMDS2"] = scores_1[,2]
+
+grid_10km_elev
+<<<<<<<<<<<< CELL: 24 TYPE: markdown >>>>>>>>>>>>
+# 4. GAM - Beta Diversity
+<<<<<<<<<<<< CELL: 25 TYPE: code >>>>>>>>>>>>
+df <- grid_10km_elev %>% st_drop_geometry()
+
+# variables
+df$NMDS1
+df$NMDS2
+df$elev_mean
+df$centroid_x
+df$centroid_y
+<<<<<<<<<<<< CELL: 26 TYPE: markdown >>>>>>>>>>>>
+## 4.1. Model - NMDS1
+<<<<<<<<<<<< CELL: 27 TYPE: markdown >>>>>>>>>>>>
+The GAM model fitted for NMDS1 showed a robust and statistically consistent fit, with an adjusted R² of 0.74 and explained deviance near 77%, indicating that elevation and spatial structure explain a large portion of the ecological gradient represented by this axis. Both smoothers were highly significant with no signs of collinearity, and basis dimension checks confirmed that the chosen complexity was sufficient without overfitting. Diagnostics showed approximately normal residuals with no heterocedasticity or uncaptured patterns, while Moran's I test indicated an absence of residual spatial autocorrelation. Overall, the model assumptions are met, and the estimated effects can be reliably interpreted.
+<<<<<<<<<<<< CELL: 28 TYPE: code >>>>>>>>>>>>
+m_nmds1 <- gam(
+  NMDS1 ~ 
+    s(elev_mean, k = 3) +                      # Non-linear elevation effect
+    s(centroid_x, centroid_y, bs = "tp"),             # 2D spatial smoother
+  data   = df,
+  family = gaussian(),
+  method = "REML"
+)
+
+summary(m_nmds1)
+<<<<<<<<<<<< CELL: 29 TYPE: markdown >>>>>>>>>>>>
+### 4.1.1. Checks
+<<<<<<<<<<<< CELL: 30 TYPE: code >>>>>>>>>>>>
+gam.check(m_nmds1)
+<<<<<<<<<<<< CELL: 31 TYPE: markdown >>>>>>>>>>>>
+### 4.1.2. Concurvity
+<<<<<<<<<<<< CELL: 32 TYPE: code >>>>>>>>>>>>
+concurvity(m_nmds1, full = TRUE)
+<<<<<<<<<<<< CELL: 33 TYPE: markdown >>>>>>>>>>>>
+### 4.1.3. Moran Test
+<<<<<<<<<<<< CELL: 34 TYPE: code >>>>>>>>>>>>
+library(spdep)
+
+coords <- cbind(df$centroid_x, df$centroid_y)
+nb_obj <- knn2nb(knearneigh(coords, k=5))
+lw <- nb2listw(nb_obj)
+
+moran.test(residuals(m_nmds1), lw)
+<<<<<<<<<<<< CELL: 35 TYPE: markdown >>>>>>>>>>>>
+### 4.1.4. Plot Predictions
+<<<<<<<<<<<< CELL: 36 TYPE: code >>>>>>>>>>>>
+# ============================================================
+# 1. Partial effect of elev_mean
+# ============================================================
+
+new_elev <- data.frame(
+  elev_mean  = seq(min(df$elev_mean), max(df$elev_mean), length.out = 200),
+  centroid_x = mean(df$centroid_x),
+  centroid_y = mean(df$centroid_y)
+)
+
+p_elev <- predict(m_nmds1, newdata = new_elev, type = "response", se.fit = TRUE)
+
+new_elev$fit   <- p_elev$fit
+new_elev$lower <- p_elev$fit - 2*p_elev$se.fit
+new_elev$upper <- p_elev$fit + 2*p_elev$se.fit
+
+g1_nmds1_elev <- ggplot(new_elev, aes(elev_mean, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Elevation", y = "NMDS1 (predicted)") +
+  ggtitle("Partial effect of elev_mean")
+
+
+# ============================================================
+# 2. Partial effect of centroid_x
+# ============================================================
+
+new_x <- data.frame(
+  centroid_x = seq(min(df$centroid_x), max(df$centroid_x), length.out = 200),
+  centroid_y = mean(df$centroid_y),
+  elev_mean  = mean(df$elev_mean)
+)
+
+p_x <- predict(m_nmds1, newdata = new_x, type = "response", se.fit = TRUE)
+
+new_x$fit   <- p_x$fit
+new_x$lower <- p_x$fit - 2*p_x$se.fit
+new_x$upper <- p_x$fit + 2*p_x$se.fit
+
+g1_nmds1_x <- ggplot(new_x, aes(centroid_x, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "X Coordinate", y = "NMDS1 (predicted)") +
+  ggtitle("Partial effect of centroid_x")
+
+
+# ============================================================
+# 3. Partial effect of centroid_y
+# ============================================================
+
+new_y <- data.frame(
+  centroid_y = seq(min(df$centroid_y), max(df$centroid_y), length.out = 200),
+  centroid_x = mean(df$centroid_x),
+  elev_mean  = mean(df$elev_mean)
+)
+
+p_y <- predict(m_nmds1, newdata = new_y, type = "response", se.fit = TRUE)
+
+new_y$fit   <- p_y$fit
+new_y$lower <- p_y$fit - 2*p_y$se.fit
+new_y$upper <- p_y$fit + 2*p_y$se.fit
+
+g1_nmds1_y <- ggplot(new_y, aes(centroid_y, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Y Coordinate", y = "NMDS1 (predicted)") +
+  ggtitle("Partial effect of centroid_y")
+
+
+# ============================================================
+# 4. Combined final figure
+# ============================================================
+
+(g1_nmds1_elev | g1_nmds1_x | g1_nmds1_y)
+<<<<<<<<<<<< CELL: 37 TYPE: code >>>>>>>>>>>>
+out_dir <- "Results/Reports/GAMs"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+saveRDS(
+  list(new_elev = new_elev, new_x = new_x, new_y = new_y),
+  file = file.path(out_dir, "partial_effects_nmds1.rds")
+)
+<<<<<<<<<<<< CELL: 38 TYPE: markdown >>>>>>>>>>>>
+### 4.1.5. Predicted NMDS1
+<<<<<<<<<<<< CELL: 39 TYPE: code >>>>>>>>>>>>
+# =========================================================
+# 1. Load Ecuador limits and DEM in WGS84
+# =========================================================
+
+ecu <- st_read("Data/Shp/ecuador_limits.shp") |>
+  st_transform(4326) |>
+  st_make_valid()
+
+ecu_v <- vect(ecu)
+
+dem_30m <- rast("Data/raster/dem_30m.tif")
+dem_30m <- project(dem_30m, "EPSG:4326")
+
+
+# =========================================================
+# 2. Create a blank 10 km raster covering all of Ecuador
+# =========================================================
+
+ext_ecu <- ext(ecu_v)
+
+# Resolution equivalent to 10 km in degrees
+res_deg <- 10000 / 111320     # ≈ 0.089932°
+
+r10 <- rast(
+  extent = ext_ecu,
+  resolution = res_deg,
+  crs = "EPSG:4326",
+  nlyrs = 1
+)
+names(r10) <- "NMDS1_pred"
+
+
+# =========================================================
+# 3. Extract coordinates of each cell
+# =========================================================
+
+coords <- crds(r10, df = TRUE)
+colnames(coords) <- c("centroid_x", "centroid_y")
+
+
+# =========================================================
+# 4. Extract elevation from DEM
+# =========================================================
+
+elev_df <- terra::extract(
+  dem_30m,
+  coords[, c("centroid_x", "centroid_y")]
+)
+
+df_pred <- cbind(coords, elev_mean = elev_df[,2])
+
+# Remove NA values
+df_pred <- df_pred[!is.na(df_pred$elev_mean), ]
+
+
+# =========================================================
+# 5. Predict GAM NMDS1 across the entire study area
+# =========================================================
+
+pred_vals <- predict(
+  m_nmds1,
+  newdata = df_pred,
+  type = "response"   # Identity link -> prediction = linear predictor
+)
+
+df_pred$pred <- pred_vals
+
+
+# =========================================================
+# 6. Insert predictions into the raster
+# =========================================================
+
+r_pred <- r10
+
+cell_ids <- cellFromXY(r_pred, df_pred[, c("centroid_x", "centroid_y")])
+
+vals <- rep(NA, ncell(r_pred))
+vals[cell_ids] <- df_pred$pred
+
+r_pred_nmds1 <- setValues(r_pred, vals)
+
+
+# =========================================================
+# 7. Mask: Restrict predictions to Ecuador limits
+# =========================================================
+
+r_pred_ecu_nmds1 <- mask(r_pred_nmds1, ecu_v)
+
+plot(r_pred_ecu_nmds1)
+<<<<<<<<<<<< CELL: 40 TYPE: markdown >>>>>>>>>>>>
+## 4.2. Model - NMDS2
+<<<<<<<<<<<< CELL: 41 TYPE: markdown >>>>>>>>>>>>
+El modelo GAM ajustado para NMDS2 mostró efectos significativos pero moderados de la elevación y de la estructura espacial, explicando aproximadamente un 31% de la variación del eje, un patrón esperado para un componente secundario del NMDS donde predomina variación ecológica más débil o ruidosa. Los diagnósticos del modelo indican un ajuste estable y apropiado: los residuos son aproximadamente normales, no presentan heterocedasticidad ni patrones sistemáticos frente al predictor lineal, y el análisis de Moran I confirma ausencia de autocorrelación espacial residual, lo que demuestra que el suavizador espacial absorbió adecuadamente la dependencia espacial existente. Asimismo, las pruebas de concurrvidad muestran niveles bajos tanto en los valores observados como en los que afectan a la estimación, indicando independencia adecuada entre los predictores y permitiendo interpretar sus efectos sin distorsión. En conjunto, el modelo es técnicamente sólido y cumple los supuestos, aunque su capacidad explicativa refleja que NMDS2 representa un gradiente ecológico más tenue que NMDS1.
+<<<<<<<<<<<< CELL: 42 TYPE: code >>>>>>>>>>>>
+m_nmds2 <- gam(
+  NMDS2 ~ 
+    s(elev_mean) +                      # efecto no lineal de elevación
+    s(centroid_x, centroid_y, bs = "tp"),             # suavizador espacial 2D
+  data   = df,
+  family = gaussian(),
+  method = "REML"
+)
+
+summary(m_nmds2)
+<<<<<<<<<<<< CELL: 43 TYPE: markdown >>>>>>>>>>>>
+### 4.2.1. Checks
+<<<<<<<<<<<< CELL: 44 TYPE: code >>>>>>>>>>>>
+gam.check(m_nmds2)
+<<<<<<<<<<<< CELL: 45 TYPE: markdown >>>>>>>>>>>>
+### 4.2.2. Concurvity
+<<<<<<<<<<<< CELL: 46 TYPE: code >>>>>>>>>>>>
+concurvity(m_nmds2, full = TRUE)
+<<<<<<<<<<<< CELL: 47 TYPE: markdown >>>>>>>>>>>>
+### 4.2.3. Moran Test
+<<<<<<<<<<<< CELL: 48 TYPE: code >>>>>>>>>>>>
+library(spdep)
+
+coords <- cbind(df$centroid_x, df$centroid_y)
+nb_obj <- knn2nb(knearneigh(coords, k=5))
+lw <- nb2listw(nb_obj)
+
+moran.test(residuals(m_nmds2), lw)
+<<<<<<<<<<<< CELL: 49 TYPE: markdown >>>>>>>>>>>>
+### 4.2.4. Plot Predictions
+<<<<<<<<<<<< CELL: 50 TYPE: code >>>>>>>>>>>>
+# ============================================================
+# 1. Efecto parcial de elev_mean
+# ============================================================
+
+new_elev <- data.frame(
+  elev_mean  = seq(min(df$elev_mean), max(df$elev_mean), length.out = 200),
+  centroid_x = mean(df$centroid_x),
+  centroid_y = mean(df$centroid_y)
+)
+
+p_elev <- predict(m_nmds2, newdata = new_elev, type = "response", se.fit = TRUE)
+
+new_elev$fit   <- p_elev$fit
+new_elev$lower <- p_elev$fit - 2*p_elev$se.fit
+new_elev$upper <- p_elev$fit + 2*p_elev$se.fit
+
+g1_nmds2_elev <- ggplot(new_elev, aes(elev_mean, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Elevación", y = "NMDS2 (predicho)") +
+  ggtitle("Efecto parcial de elev_mean")
+
+
+# ============================================================
+# 2. Efecto parcial de centroid_x
+# ============================================================
+
+new_x <- data.frame(
+  centroid_x = seq(min(df$centroid_x), max(df$centroid_x), length.out = 200),
+  centroid_y = mean(df$centroid_y),
+  elev_mean  = mean(df$elev_mean)
+)
+
+p_x <- predict(m_nmds2, newdata = new_x, type = "response", se.fit = TRUE)
+
+new_x$fit   <- p_x$fit
+new_x$lower <- p_x$fit - 2*p_x$se.fit
+new_x$upper <- p_x$fit + 2*p_x$se.fit
+
+g1_nmds2_x <- ggplot(new_x, aes(centroid_x, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Coordenada X", y = "NMDS2 (predicho)") +
+  ggtitle("Efecto parcial de centroid_x")
+
+
+# ============================================================
+# 3. Efecto parcial de centroid_y
+# ============================================================
+
+new_y <- data.frame(
+  centroid_y = seq(min(df$centroid_y), max(df$centroid_y), length.out = 200),
+  centroid_x = mean(df$centroid_x),
+  elev_mean  = mean(df$elev_mean)
+)
+
+p_y <- predict(m_nmds2, newdata = new_y, type = "response", se.fit = TRUE)
+
+new_y$fit   <- p_y$fit
+new_y$lower <- p_y$fit - 2*p_y$se.fit
+new_y$upper <- p_y$fit + 2*p_y$se.fit
+
+g1_nmds2_y <- ggplot(new_y, aes(centroid_y, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Coordenada Y", y = "NMDS2 (predicho)") +
+  ggtitle("Efecto parcial de centroid_y")
+
+
+# ============================================================
+# 4. Figura final combinada
+# ============================================================
+
+(g1_nmds2_elev | g1_nmds2_x | g1_nmds2_y)
+<<<<<<<<<<<< CELL: 51 TYPE: code >>>>>>>>>>>>
+out_dir <- "Results/Reports/GAMs"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+saveRDS(
+  list(new_elev = new_elev, new_x = new_x, new_y = new_y),
+  file = file.path(out_dir, "partial_effects_nmds2.rds"))
+<<<<<<<<<<<< CELL: 52 TYPE: markdown >>>>>>>>>>>>
+### 4.2.5. Predictions NMDS2
+<<<<<<<<<<<< CELL: 53 TYPE: code >>>>>>>>>>>>
+
+pred_vals <- predict(
+  m_nmds2,
+  newdata = df_pred,
+  type = "response"   # identidad → predicción = η
+)
+
+df_pred$pred <- pred_vals
+
+
+# =========================================================
+# 6. Insertar predicciones en raster
+# =========================================================
+
+r_pred <- r10
+
+cell_ids <- cellFromXY(r_pred, df_pred[, c("centroid_x", "centroid_y")])
+
+vals <- rep(NA, ncell(r_pred))
+vals[cell_ids] <- df_pred$pred
+
+r_pred_nmds2 <- setValues(r_pred, vals)
+
+
+# =========================================================
+# 7. Máscara para limitar SOLO Ecuador
+# =========================================================
+
+r_pred_ecu_nmds2 <- mask(r_pred_nmds2, ecu_v)
+
+plot(r_pred_ecu_nmds2)
+<<<<<<<<<<<< CELL: 54 TYPE: markdown >>>>>>>>>>>>
+# 5. Join  Bands
+<<<<<<<<<<<< CELL: 55 TYPE: code >>>>>>>>>>>>
+# Crear un stack con las dos capas NMDS1 y NMDS2
+nmds_stack <- c(r_pred_ecu_nmds1, r_pred_ecu_nmds2)
+
+nmds_stack
+<<<<<<<<<<<< CELL: 56 TYPE: code >>>>>>>>>>>>
+
+
+# Convertir de SpatRaster (terra) a RasterLayer (raster)
+n1 <- raster(r_pred_ecu_nmds1)
+n2 <- raster(r_pred_ecu_nmds2)
+
+# Convertir a data frames con coordenadas
+nmds_df1 <- as.data.frame(n1, xy = TRUE)
+nmds_df2 <- as.data.frame(n2, xy = TRUE)
+
+# Unir ambos data frames
+df_nmds <- merge(nmds_df1, nmds_df2, by = c("x", "y"))
+names(df_nmds) <- c("x", "y", "NMDS1", "NMDS2")
+
+# Remover NAs
+df_nmds <- na.omit(df_nmds)
+
+# Stretch histogram - expande el contraste usando percentiles
+hist_stretch <- function(x, percent = 0.02) {
+  low <- quantile(x, percent, na.rm = TRUE)
+  high <- quantile(x, 1 - percent, na.rm = TRUE)
+  x[x < low] <- low
+  x[x > high] <- high
+  (x - low) / (high - low)
+}
+
+df_nmds$R <- hist_stretch(df_nmds$NMDS1)
+df_nmds$G <- hist_stretch(df_nmds$NMDS2)
+
+# Crear colores RGB
+df_nmds$color <- rgb(df_nmds$R, df_nmds$G, 0)
+
+# Plot con ggplot2
+ggplot(df_nmds, aes(x = x, y = y)) +
+  geom_raster(fill = df_nmds$color) +
+  coord_equal() +
+  labs(
+    title = "Combinación RG de NMDS1 (Rojo) y NMDS2 (Verde) - Stretch Histogram",
+    x = "Longitud",
+    y = "Latitud"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    panel.grid = element_blank()
+  )
+<<<<<<<<<<<< CELL: 57 TYPE: markdown >>>>>>>>>>>>
+# 6. Clúster Analysis
+<<<<<<<<<<<< CELL: 58 TYPE: markdown >>>>>>>>>>>>
+## 6.1. Get NMDS dataframe
+<<<<<<<<<<<< CELL: 59 TYPE: code >>>>>>>>>>>>
+# Extraer los valores del stack de NMDS1 y NMDS2
+nmds_values <- getValues(stack(nmds_stack))
+nmds_values <- na.omit(nmds_values)
+head(nmds_values)
+<<<<<<<<<<<< CELL: 60 TYPE: markdown >>>>>>>>>>>>
+## 6.2. Clústers K means
+<<<<<<<<<<<< CELL: 61 TYPE: code >>>>>>>>>>>>
+
+set.seed(593)
+res_nb <- NbClust(nmds_values[, 1:2], distance = "euclidean",
+                  min.nc = 2, max.nc = 10, method = "kmeans")
+
+res_nb
+     
+<<<<<<<<<<<< CELL: 62 TYPE: markdown >>>>>>>>>>>>
+## 6.3. Clúster Raster
+<<<<<<<<<<<< CELL: 63 TYPE: code >>>>>>>>>>>>
+
+cluster_raster <- raster(stack(nmds_stack[[1]]))  # Usar la primera capa del stack para la plantilla
+values(cluster_raster) <- NA  # Inicializar con NA
+# Asignar los valores de los clusters al raster
+cluster_raster[!is.na(getValues(stack(nmds_stack[[1]])))] <- res_nb$Best.partition
+cluster_raster = rast(cluster_raster)
+##plot cluster
+plot(cluster_raster)
+<<<<<<<<<<<< CELL: 64 TYPE: code >>>>>>>>>>>>
+# Cargar tu stack NMDS como SpatRaster (ya lo tienes en nmds_stack)
+# Crear raster de clusters como SpatRaster
+cluster_raster <- rast(nmds_stack[[1]])
+values(cluster_raster) <- NA
+
+# Asignar la partición (vector res_nb$Best.partition) solo donde hay datos
+vals <- values(nmds_stack[[1]])
+cluster_raster[!is.na(vals)] <- res_nb$Best.partition
+
+# Aplicar ventana focal 3x3 para obtener la moda
+cluster_raster_clean <- focal(cluster_raster,
+                    w = 3,
+                    fun = modal,
+                    na.policy = "omit",
+                    na.rm = TRUE)
+
+# Resultado final
+<<<<<<<<<<<< CELL: 65 TYPE: code >>>>>>>>>>>>
+plot(cluster_raster_clean)
+<<<<<<<<<<<< CELL: 66 TYPE: markdown >>>>>>>>>>>>
+# 7. Export results
+<<<<<<<<<<<< CELL: 67 TYPE: code >>>>>>>>>>>>
+writeRaster(nmds_stack, "Results/raster/nmds_result.tiff", overwrite=TRUE)
+writeRaster(cluster_raster_clean, "Results/raster/cluster_raster_result.tiff", overwrite=TRUE)
+<<<<<<<<<<<< FILE: 4_Endemism.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: code >>>>>>>>>>>>
+library(raster)
+library(sf)
+library(terra)
+library(dplyr)
+library(purrr)
+<<<<<<<<<<<< CELL: 1 TYPE: code >>>>>>>>>>>>
+records_path <- "Data/Records/insects_records_clean.csv"
+raster_path  <-  "Results/raster/GAM_prediction_alpha.tif"
+out_dir      <- "Results/GIE"
+
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# ------------------------------
+# 1) Helpers
+# ------------------------------
+utm_epsg_from_lonlat <- function(lon, lat) {
+  zone <- floor((lon + 180) / 6) + 1
+  if (lat >= 0) 32600 + zone else 32700 + zone
+}
+
+# Kernel Gaussiano truncado (dist en m)
+kernel_gauss_trunc <- function(dist_m, Rc_m, sigma_m) {
+  w <- exp(-(dist_m^2) / (2 * sigma_m^2))
+  w[dist_m > Rc_m] <- 0
+  w
+}
+
+# sigma como fracción de Rc (suavidad)
+sigma_from_Rc <- function(Rc_m) Rc_m / 3
+
+# ------------------------------
+# 2) Cargar datos y raster
+# ------------------------------
+insects_records <- read.csv(records_path)
+
+# Ajusta nombres si difieren
+# Requeridos: taxonRank, scientificName, decimalLongitude, decimalLatitude
+stopifnot(all(c("taxonRank","scientificName","decimalLongitude","decimalLatitude") %in% names(insects_records)))
+
+insects_records <- insects_records %>%
+  filter(taxonRank == "species") %>%
+  filter(!is.na(scientificName),
+         !is.na(decimalLongitude),
+         !is.na(decimalLatitude))
+
+raster_ref_ll <- rast(raster_path)
+
+# ------------------------------
+# 3) Definir CRS métrico (UTM) y reproyectar raster plantilla
+# ------------------------------
+# Centro del raster en lon/lat (si el raster no tiene lon/lat, usamos su centro igualmente)
+ext_ll <- ext(raster_ref_ll)
+lon0 <- (ext_ll$xmin + ext_ll$xmax) / 2
+lat0 <- (ext_ll$ymin + ext_ll$ymax) / 2
+
+# Si raster está en lon/lat, lon0/lat0 están en grados y esto funciona bien.
+# Si no, aún así solo se usa para estimar UTM; en ese caso es mejor definir EPSG manual.
+epsg_utm <- utm_epsg_from_lonlat(lon0, lat0)
+crs_utm  <- paste0("EPSG:", epsg_utm)
+
+# Reproyectar raster a UTM si está en lon/lat; si no, igual forzamos plantilla en UTM para coherencia
+# Define resolución objetivo en metros (ajusta a tu escala)
+target_res_m <- 1000
+
+raster_ref_utm <- project(raster_ref_ll, crs_utm, res = target_res_m, method = "bilinear")
+writeRaster(raster_ref_utm, file.path(out_dir, "raster_ref_utm.tif"), overwrite = TRUE)
+
+# ------------------------------
+# 4) Pasar ocurrencias a UTM (SpatVector)
+# ------------------------------
+insects_records_sf <- st_as_sf(
+  insects_records,
+  coords = c("decimalLongitude","decimalLatitude"),
+  crs = 4326,
+  remove = FALSE
+)
+
+pts_v <- vect(insects_records_sf)
+pts_v <- project(pts_v, crs(raster_ref_utm))
+
+coords <- crds(pts_v, df = TRUE)
+pts_df <- data.frame(
+  scientificName = pts_v$scientificName,
+  x = coords[,1],
+  y = coords[,2],
+  stringsAsFactors = FALSE
+)
+
+# ------------------------------
+# 5) Filtrar especies con mínimo 3 registros
+# ------------------------------
+min_records <- 5
+
+spp_n <- pts_df %>%
+  count(scientificName, name = "n") %>%
+  filter(n >= min_records)
+
+pts_df <- pts_df %>% inner_join(spp_n, by = "scientificName")
+
+# ------------------------------
+# 6) Centroide y di por especie
+# ------------------------------
+centroids <- pts_df %>%
+  group_by(scientificName) %>%
+  summarise(
+    n  = dplyr::first(n),
+    cx = mean(x),
+    cy = mean(y),
+    .groups = "drop"
+  )
+
+# di_m (máxima distancia al centroide), en metros
+pts_split <- split(pts_df, pts_df$scientificName)
+
+di_tbl <- lapply(names(pts_split), function(sp) {
+  d  <- pts_split[[sp]]
+  cx <- centroids$cx[centroids$scientificName == sp]
+  cy <- centroids$cy[centroids$scientificName == sp]
+  di_m <- max(sqrt((d$x - cx)^2 + (d$y - cy)^2), na.rm = TRUE)
+  data.frame(scientificName = sp, di_m = di_m)
+}) |> bind_rows()
+
+centroids <- centroids %>%
+  left_join(di_tbl, by = "scientificName") %>%
+  mutate(di_km = di_m / 1000)
+
+# ------------------------------
+# 7) Categorías de rango (como el paper; ajustable)
+# ------------------------------
+breaks_km <- c(0, 50, 100, 200, 300, 400, Inf)
+
+centroids <- centroids %>%
+  mutate(cat = cut(di_km, breaks = breaks_km, include.lowest = TRUE, right = TRUE))
+
+# Rc por categoría = max(di) de la categoría (m)
+rc_by_cat <- centroids %>%
+  group_by(cat) %>%
+  summarise(Rc_km = max(di_km, na.rm = TRUE), .groups = "drop") %>%
+  mutate(Rc_m = Rc_km * 1000)
+
+# Guardar tabla de control
+write.csv(
+  centroids %>% st_drop_geometry(),
+  file.path(out_dir, "centroids_di.csv"),
+  row.names = FALSE
+)
+write.csv(
+  rc_by_cat,
+  file.path(out_dir, "Rc_by_category.csv"),
+  row.names = FALSE
+)
+
+# ------------------------------
+# 8) Kernel por categoría + consenso
+# ------------------------------
+r_template <- raster_ref_utm
+values(r_template) <- 0
+
+# Centroides a vector
+cen_v <- vect(centroids, geom = c("cx","cy"), crs = crs(r_template))
+
+k_by_cat <- list()
+
+cats <- levels(centroids$cat)
+cats <- cats[!is.na(cats)]
+
+for (ct in cats) {
+  message("Procesando categoría: ", ct)
+
+  # radios por categoría
+  Rc_m <- rc_by_cat %>% filter(cat == ct) %>% pull(Rc_m)
+  if (length(Rc_m) == 0 || is.na(Rc_m) || Rc_m <= 0) next
+
+  sigma_m <- sigma_from_Rc(Rc_m)
+
+  # centroides de la categoría
+  v_ct <- cen_v[cen_v$cat == ct, ]
+  if (nrow(v_ct) == 0) next
+
+  k_cat <- rast(r_template)
+  values(k_cat) <- 0
+
+  # Suma de kernels por centroide
+  for (i in seq_len(nrow(v_ct))) {
+    p <- v_ct[i]
+    d <- distance(r_template, p)  # metros
+    w <- app(d, fun = function(x) kernel_gauss_trunc(x, Rc_m, sigma_m))
+    k_cat <- k_cat + w
+  }
+
+  nm <- paste0("k_", gsub("[^0-9A-Za-z]+", "_", ct))
+  names(k_cat) <- nm
+  k_by_cat[[as.character(ct)]] <- k_cat
+
+  writeRaster(k_cat, file.path(out_dir, paste0(nm, ".tif")), overwrite = TRUE)
+}
+
+if (length(k_by_cat) == 0) stop("No se generó ningún k por categoría. Revisa filtros y CRS.")
+
+# Consenso: estandariza 0–1 por categoría y suma (paper)
+k_std <- lapply(k_by_cat, function(r) {
+  mx <- global(r, "max", na.rm = TRUE)[1,1]
+  if (is.na(mx) || mx == 0) return(r * 0)
+  r / mx
+})
+
+k_consensus <- Reduce(`+`, k_std)
+names(k_consensus) <- "k_consensus"
+
+# ------------------------------
+# 9) Volver a la geometría EXACTA del raster de referencia (misma res/ext/origen/CRS)
+# ------------------------------
+# Opción recomendada: project usando plantilla (y) => copia geometría de raster_ref_ll
+k_consensus_ref <- project(k_consensus, raster_ref_ll, method = "bilinear")
+
+# Asegurar que quede exactamente alineado (por si hubiera micro-diferencias)
+k_consensus_ref <- resample(k_consensus_ref, raster_ref_ll, method = "bilinear")
+
+# Forzar extensión exacta (seguro adicional)
+ext(k_consensus_ref) <- ext(raster_ref_ll)
+
+names(k_consensus_ref) <- "k_consensus"
+writeRaster(k_consensus_ref, file.path(out_dir, "k_consensus_ref.tif"), overwrite = TRUE)
+<<<<<<<<<<<< CELL: 2 TYPE: code >>>>>>>>>>>>
+ecu = st_read("Data/Shp/ecuador_limits.shp")
+k_consensus_4326 <- project(k_consensus_ref, "EPSG:4326")
+k_consensus_ecu = mask(crop(k_consensus_4326, ecu), ecu)
+
+# Normalización min-max a [0, 1] (ignorando NA)
+rmin <- global(k_consensus_ecu, "min", na.rm = TRUE)[1,1]
+rmax <- global(k_consensus_ecu, "max", na.rm = TRUE)[1,1]
+
+k_consensus_01 <- (k_consensus_ecu - rmin) / (rmax - rmin)
+
+# (opcional) asegurar límites numéricos por redondeos
+k_consensus_01 <- clamp(k_consensus_01, lower = 0, upper = 1, values = TRUE)
+<<<<<<<<<<<< CELL: 3 TYPE: code >>>>>>>>>>>>
+plot(k_consensus_01)
+<<<<<<<<<<<< CELL: 4 TYPE: code >>>>>>>>>>>>
+writeRaster(k_consensus_01,  "Results/GIE/Endemism_consensus.tiff", overwrite=TRUE)
+<<<<<<<<<<<< FILE: 5_Conservation_areas.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: code >>>>>>>>>>>>
+library(terra)
+library(sf)
+library(spatstat)
+<<<<<<<<<<<< CELL: 1 TYPE: markdown >>>>>>>>>>>>
+# 1. Data
+<<<<<<<<<<<< CELL: 2 TYPE: code >>>>>>>>>>>>
+
+# -------------------------
+# 1) Cargar rasters (template = primer raster)
+# -------------------------
+beta_clusters <- rast("Results/raster/cluster_raster_result.tiff")  # template
+richness      <- rast("Results/raster/GAM_prediction_alpha.tif")
+endemism      <- rast("Results/GIE/Endemism_consensus.tiff")
+ecu = st_read("Data/Shp/ecuador_limits.shp")
+# -------------------------
+# 2) Igualar CRS / resolución / extensión al template
+# -------------------------
+# (a) Proyectar a CRS del template (si hace falta)
+if (!same.crs(richness, beta_clusters)) richness <- project(richness, beta_clusters)
+if (!same.crs(endemism, beta_clusters)) endemism <- project(endemism, beta_clusters)
+
+# (b) Ajustar extensión y resolución: resample al grid del template
+richness_a <- resample(richness, beta_clusters, method = "bilinear")
+endemism_a <- resample(endemism, beta_clusters, method = "bilinear")
+
+# (opcional) recortar/maskar al extent exacto del template
+richness_a <- crop(richness_a, beta_clusters)
+endemism_a <- crop(endemism_a, beta_clusters)
+
+# -------------------------
+# 3) Leer puntos y construir "mapa de calor" (densidad por celda)
+# -------------------------
+insects_records <- read.csv("Data/Records/insects_records_clean.csv")
+
+pts_sf <- st_as_sf(
+  insects_records,
+  coords = c("decimalLongitude","decimalLatitude"),
+  crs = 4326,
+  remove = FALSE
+)
+
+<<<<<<<<<<<< CELL: 3 TYPE: markdown >>>>>>>>>>>>
+# 2. Heatmap
+<<<<<<<<<<<< CELL: 4 TYPE: code >>>>>>>>>>>>
+# -------------------------
+# Densidad Kernel con bandwidth óptimo para CRS 4326
+# Método: Diggle (Likelihood Cross-Validation)
+# -------------------------
+
+# Convertir a objeto ppp (point pattern) de spatstat
+coords_proj <- st_coordinates(pts_sf)
+
+# IMPORTANTE: Para CRS 4326, necesitamos una ventana apropiada
+# Crear ventana desde la extensión del raster
+ext_vals <- ext(beta_clusters)
+window_bbox <- owin(
+  xrange = c(ext_vals[1], ext_vals[2]),
+  yrange = c(ext_vals[3], ext_vals[4])
+)
+
+# Crear objeto ppp
+pts_ppp <- ppp(
+  x = coords_proj[,1],
+  y = coords_proj[,2],
+  window = window_bbox
+)
+
+cat("Número de puntos:", npoints(pts_ppp), "\n")
+cat("Extensión X:", window_bbox$xrange, "\n")
+cat("Extensión Y:", window_bbox$yrange, "\n")
+
+
+
+start_kde <- Sys.time()
+sigma_manual <- 0.3  # ~1.1 km (20× más grande)
+
+kde_suavizado <- density.ppp(
+  pts_ppp,
+  sigma = sigma_manual,
+  dimyx = dim(beta_clusters)[1:2],
+  edge = TRUE
+)
+
+end_kde <- Sys.time()
+cat("Densidad calculada en", round(difftime(end_kde, start_kde, units = "secs"), 1), "segundos\n")
+
+# Convertir a raster terra
+kde_raster <- rast(kde_suavizado)
+crs(kde_raster) <- crs(beta_clusters)
+
+# Ajustar exactamente al template
+kde_raster <- resample(kde_raster, beta_clusters, method = "bilinear")
+kde_raster <- crop(kde_raster, beta_clusters)
+
+names(kde_raster) <- "kernel_density_diggle"
+
+# -------------------------
+# Aplicar máscara de Ecuador
+# -------------------------
+kde_raster_ecu <- mask(kde_raster, ecu)
+
+# -------------------------
+# Visualización
+# -------------------------
+plot(kde_raster_ecu)
+
+# -------------------------
+# Guardar resultado
+# -------------------------
+
+
+writeRaster(
+  kde_raster_ecu,
+  "Results/raster/records_kernel_density.tiff",
+  overwrite = TRUE,
+  gdal = c("COMPRESS=LZW")
+)
+
+#
+plot(kde_raster_ecu)
+# -------------------------
+
+
+<<<<<<<<<<<< CELL: 5 TYPE: markdown >>>>>>>>>>>>
+# 3. Conservation importance areas
+<<<<<<<<<<<< CELL: 6 TYPE: markdown >>>>>>>>>>>>
+We analyze in each cluster obtained from beta diversity. In echa cluster we normalice from 0 to 1 the alpha diversity, endemism, and records raster. In the case of the last one we chance the meaning of the date with 0 in the pixels with the low highest density and 1 the pixels with the lowest, this is because we want to determinate the areas of majo importance and low data. 
+<<<<<<<<<<<< CELL: 7 TYPE: markdown >>>>>>>>>>>>
+We divide the analysis in alpha, endemism and both. 
+<<<<<<<<<<<< CELL: 8 TYPE: markdown >>>>>>>>>>>>
+## 3.1 Alpha diversity
+<<<<<<<<<<<< CELL: 9 TYPE: code >>>>>>>>>>>>
+# ============================================================
+# 0) Configuración de salida
+# ============================================================
+out_base <- "Results/raster"
+out_dir  <- file.path(out_base, "alpha_diversity")
+
+dir.create(out_base, recursive = TRUE, showWarnings = FALSE)
+dir.create(out_dir,  recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================
+# 1) Funciones auxiliares
+# ============================================================
+
+# Escalado 0–1 ignorando NA; devuelve NA si max==min o no hay datos
+safe_scale01 <- function(x) {
+  rr <- global(x, "range", na.rm = TRUE)
+  mn <- rr[1, 1]
+  mx <- rr[1, 2]
+
+  if (is.na(mn) || is.na(mx) || mx == mn) return(x * NA)
+
+  x01 <- (x - mn) / (mx - mn)
+  clamp(x01, lower = 0, upper = 1, values = TRUE)
+}
+
+# Likert 1–5 sobre un raster 0–1 (intervalos iguales)
+to_likert_5 <- function(x01) {
+  rcl <- matrix(
+    c(
+      0.0, 0.2, 1,
+      0.2, 0.4, 2,
+      0.4, 0.6, 3,
+      0.6, 0.8, 4,
+      0.8, 1.0000001, 5
+    ),
+    ncol = 3, byrow = TRUE
+  )
+  classify(x01, rcl = rcl, include.lowest = TRUE, right = FALSE)
+}
+
+# ============================================================
+# 2) Bucle por clúster: recorte, escalado, exportación
+# ============================================================
+avg_list <- vector("list", length = 3)
+
+for (i in 1:3) {
+
+  # 2.1) Máscara del clúster i (1 dentro; NA fuera)
+  cluster_i <- ifel(beta_clusters == i, 1, NA)
+
+  writeRaster(
+    cluster_i,
+    filename  = file.path(out_dir, paste0("cluster_mask_", i, ".tif")),
+    overwrite = TRUE
+  )
+
+  # 2.2) Alpha (riqueza) recortada y escalada 0–1 dentro del clúster
+  alpha_cluster <- mask(richness_a, cluster_i)
+  alpha_cluster_scale <- safe_scale01(alpha_cluster)
+
+  writeRaster(
+    alpha_cluster_scale,
+    filename  = file.path(out_dir, paste0("alpha_cluster_", i, "_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.3) KDE recortada: PRIMERO invertir, LUEGO escalar 0–1
+  records_density_cluster <- mask(kde_raster_ecu, cluster_i)
+  
+  # Obtener rango del clúster para invertir correctamente
+  rr_density <- global(records_density_cluster, "range", na.rm = TRUE)
+  min_density <- rr_density[1, 1]
+  max_density <- rr_density[1, 2]
+  
+  # Invertir: max - valor + min (preserva el rango original pero invertido)
+  records_density_cluster_inv <- ifel(
+    is.na(records_density_cluster),
+    NA,
+    max_density - records_density_cluster + min_density
+  )
+  
+  # AHORA sí escalar 0-1 el raster invertido
+  records_density_cluster_scale_inv <- safe_scale01(records_density_cluster_inv)
+
+  writeRaster(
+    records_density_cluster_scale_inv,
+    filename  = file.path(out_dir, paste0("density_cluster_", i, "_inv_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.4) Promedio final por clúster (ambos ya en escala 0-1)
+  alpha_conservation_cluster <- (alpha_cluster_scale + records_density_cluster_scale_inv) / 2
+
+  writeRaster(
+    alpha_conservation_cluster,
+    filename  = file.path(out_dir, paste0("alpha_conservation_cluster_", i, "_avg.tif")),
+    overwrite = TRUE
+  )
+
+  avg_list[[i]] <- alpha_conservation_cluster
+}
+
+# ============================================================
+# 3) Unir promedios de clústeres en un solo raster
+# ============================================================
+alpha_conservation_all <- avg_list[[1]]
+for (j in 2:length(avg_list)) {
+  alpha_conservation_all <- cover(alpha_conservation_all, avg_list[[j]])
+}
+
+writeRaster(
+  alpha_conservation_all,
+  filename  = file.path(out_dir, "alpha_conservation_all_clusters_avg.tif"),
+  overwrite = TRUE
+)
+
+# ============================================================
+# 4) Escala Likert (1–5) aplicada al raster final
+# ============================================================
+# Cada clúster ya está en 0–1, aplicar Likert directamente
+alpha_conservation_all_likert5 <- to_likert_5(alpha_conservation_all)
+
+writeRaster(
+  alpha_conservation_all_likert5,
+  filename  = file.path(out_dir, "alpha_conservation_all_clusters_likert5.tif"),
+  overwrite = TRUE
+)
+
+cat("\n============================================================\n")
+cat("✓ Análisis completado exitosamente\n")
+cat("============================================================\n")
+cat("Características del análisis:\n")
+cat("  • Cada clúster analizado independientemente (escala 0-1 interna)\n")
+cat("  • Densidad de registros invertida ANTES de escalar\n")
+cat("  • Resultado final unificado en una sola capa\n")
+cat("  • Clasificación Likert 1-5 aplicada\n")
+cat("============================================================\n")
+<<<<<<<<<<<< CELL: 10 TYPE: code >>>>>>>>>>>>
+plot(alpha_conservation_all_likert5)
+<<<<<<<<<<<< CELL: 11 TYPE: markdown >>>>>>>>>>>>
+## 3.2. Endemism
+<<<<<<<<<<<< CELL: 12 TYPE: code >>>>>>>>>>>>
+# ============================================================
+# 0) Configuración de salida (ENDEMISMO)
+# ============================================================
+out_base <- "Results/raster"
+out_dir  <- file.path(out_base, "endemism")
+
+dir.create(out_base, recursive = TRUE, showWarnings = FALSE)
+dir.create(out_dir,  recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================
+# 1) Funciones auxiliares
+# ============================================================
+
+# Escalado 0–1 ignorando NA; devuelve NA si max==min o no hay datos
+safe_scale01 <- function(x) {
+  rr <- global(x, "range", na.rm = TRUE)
+  mn <- rr[1, 1]
+  mx <- rr[1, 2]
+
+  if (is.na(mn) || is.na(mx) || mx == mn) return(x * NA)
+
+  x01 <- (x - mn) / (mx - mn)
+  clamp(x01, lower = 0, upper = 1, values = TRUE)
+}
+
+# Likert 1–5 sobre un raster 0–1 (intervalos iguales)
+to_likert_5 <- function(x01) {
+  rcl <- matrix(
+    c(
+      0.0, 0.2, 1,
+      0.2, 0.4, 2,
+      0.4, 0.6, 3,
+      0.6, 0.8, 4,
+      0.8, 1.0000001, 5
+    ),
+    ncol = 3, byrow = TRUE
+  )
+  classify(x01, rcl = rcl, include.lowest = TRUE, right = FALSE)
+}
+
+# ============================================================
+# 2) Bucle por clúster: recorte (endemismo), escalado, exportación
+# ============================================================
+avg_list <- vector("list", length = 3)
+
+for (i in 1:3) {
+
+  # 2.1) Máscara del clúster i (1 dentro; NA fuera)
+  cluster_i <- ifel(beta_clusters == i, 1, NA)
+
+  writeRaster(
+    cluster_i,
+    filename  = file.path(out_dir, paste0("cluster_mask_", i, ".tif")),
+    overwrite = TRUE
+  )
+
+  # 2.2) Endemismo recortado y escalado 0–1 dentro del clúster
+  endemism_cluster <- mask(endemism_a, cluster_i)
+  endemism_cluster_scale <- safe_scale01(endemism_cluster)
+
+  writeRaster(
+    endemism_cluster_scale,
+    filename  = file.path(out_dir, paste0("endemism_cluster_", i, "_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.3) KDE recortada: PRIMERO invertir, LUEGO escalar 0–1
+  records_density_cluster <- mask(kde_raster_ecu, cluster_i)
+  
+  # Obtener rango del clúster para invertir correctamente
+  rr_density <- global(records_density_cluster, "range", na.rm = TRUE)
+  min_density <- rr_density[1, 1]
+  max_density <- rr_density[1, 2]
+  
+  # Invertir: max - valor + min (preserva el rango original pero invertido)
+  records_density_cluster_inv <- ifel(
+    is.na(records_density_cluster),
+    NA,
+    max_density - records_density_cluster + min_density
+  )
+  
+  # AHORA sí escalar 0-1 el raster invertido
+  records_density_cluster_scale_inv <- safe_scale01(records_density_cluster_inv)
+
+  writeRaster(
+    records_density_cluster_scale_inv,
+    filename  = file.path(out_dir, paste0("density_cluster_", i, "_inv_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.4) Promedio final por clúster (endemismo + densidad invertida)
+  endemism_conservation_cluster <- (endemism_cluster_scale + records_density_cluster_scale_inv) / 2
+
+  writeRaster(
+    endemism_conservation_cluster,
+    filename  = file.path(out_dir, paste0("endemism_conservation_cluster_", i, "_avg.tif")),
+    overwrite = TRUE
+  )
+
+  avg_list[[i]] <- endemism_conservation_cluster
+}
+
+# ============================================================
+# 3) Unir promedios de clústeres en un solo raster
+# ============================================================
+endemism_conservation_all <- avg_list[[1]]
+for (j in 2:length(avg_list)) {
+  endemism_conservation_all <- cover(endemism_conservation_all, avg_list[[j]])
+}
+
+writeRaster(
+  endemism_conservation_all,
+  filename  = file.path(out_dir, "endemism_conservation_all_clusters_avg.tif"),
+  overwrite = TRUE
+)
+
+# ============================================================
+# 4) Escala Likert (1–5) aplicada al raster final
+# ============================================================
+# Cada clúster ya está en 0–1, aplicar Likert directamente
+endemism_conservation_all_likert5 <- to_likert_5(endemism_conservation_all)
+
+writeRaster(
+  endemism_conservation_all_likert5,
+  filename  = file.path(out_dir, "endemism_conservation_all_clusters_likert5.tif"),
+  overwrite = TRUE
+)
+
+cat("\n============================================================\n")
+cat("✓ Análisis de endemismo completado exitosamente\n")
+cat("============================================================\n")
+cat("Características del análisis:\n")
+cat("  • Cada clúster analizado independientemente (escala 0-1 interna)\n")
+cat("  • Densidad de registros invertida ANTES de escalar\n")
+cat("  • Resultado final unificado en una sola capa\n")
+cat("  • Clasificación Likert 1-5 aplicada\n")
+cat("============================================================\n")
+<<<<<<<<<<<< CELL: 13 TYPE: code >>>>>>>>>>>>
+plot(endemism_conservation_all_likert5)
+<<<<<<<<<<<< CELL: 14 TYPE: markdown >>>>>>>>>>>>
+## 3.3. Alpha and Endemism
+<<<<<<<<<<<< CELL: 15 TYPE: code >>>>>>>>>>>>
+# ============================================================
+# 0) Configuración de salida (ALPHA + ENDEMISMO + RECORDS)
+# ============================================================
+out_base <- "Results/raster"
+out_dir  <- file.path(out_base, "alpha_endemism_records")
+
+dir.create(out_base, recursive = TRUE, showWarnings = FALSE)
+dir.create(out_dir,  recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================
+# 1) Funciones auxiliares
+# ============================================================
+
+# Escalado 0–1 ignorando NA; devuelve NA si max==min o no hay datos
+safe_scale01 <- function(x) {
+  rr <- global(x, "range", na.rm = TRUE)
+  mn <- rr[1, 1]
+  mx <- rr[1, 2]
+  if (is.na(mn) || is.na(mx) || mx == mn) return(x * NA)
+  x01 <- (x - mn) / (mx - mn)
+  clamp(x01, lower = 0, upper = 1, values = TRUE)
+}
+
+# Likert 1–5 sobre un raster 0–1 (intervalos iguales)
+to_likert_5 <- function(x01) {
+  rcl <- matrix(
+    c(
+      0.0, 0.2, 1,
+      0.2, 0.4, 2,
+      0.4, 0.6, 3,
+      0.6, 0.8, 4,
+      0.8, 1.0000001, 5
+    ),
+    ncol = 3, byrow = TRUE
+  )
+  classify(x01, rcl = rcl, include.lowest = TRUE, right = FALSE)
+}
+
+# ============================================================
+# 2) Bucle por clúster: recorte, escalado, promedio triple
+# ============================================================
+avg_list <- vector("list", length = 3)
+
+for (i in 1:3) {
+
+  # 2.1) Máscara del clúster i
+  cluster_i <- ifel(beta_clusters == i, 1, NA)
+
+  writeRaster(
+    cluster_i,
+    filename  = file.path(out_dir, paste0("cluster_mask_", i, ".tif")),
+    overwrite = TRUE
+  )
+
+  # 2.2) Alpha (riqueza) recortada y escalada 0–1
+  alpha_cluster <- mask(richness_a, cluster_i)
+  alpha_scale <- safe_scale01(alpha_cluster)
+
+  writeRaster(
+    alpha_scale,
+    filename  = file.path(out_dir, paste0("alpha_cluster_", i, "_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.3) Endemismo recortado y escalado 0–1
+  endemism_cluster <- mask(endemism_a, cluster_i)
+  endemism_scale <- safe_scale01(endemism_cluster)
+
+  writeRaster(
+    endemism_scale,
+    filename  = file.path(out_dir, paste0("endemism_cluster_", i, "_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.4) KDE recortada: PRIMERO invertir, LUEGO escalar 0–1
+  records_cluster <- mask(kde_raster_ecu, cluster_i)
+  
+  # Obtener rango del clúster para invertir correctamente
+  rr_density <- global(records_cluster, "range", na.rm = TRUE)
+  min_density <- rr_density[1, 1]
+  max_density <- rr_density[1, 2]
+  
+  # Invertir: max - valor + min (preserva el rango original pero invertido)
+  records_cluster_inv <- ifel(
+    is.na(records_cluster),
+    NA,
+    max_density - records_cluster + min_density
+  )
+  
+  # AHORA sí escalar 0-1 el raster invertido
+  records_scale_inv <- safe_scale01(records_cluster_inv)
+
+  writeRaster(
+    records_scale_inv,
+    filename  = file.path(out_dir, paste0("density_cluster_", i, "_inv_scale01.tif")),
+    overwrite = TRUE
+  )
+
+  # 2.5) Promedio triple por clúster (alpha + endemismo + records_inv) / 3
+  alpha_endemism_records_cluster <- (alpha_scale + endemism_scale + records_scale_inv) / 3
+
+  writeRaster(
+    alpha_endemism_records_cluster,
+    filename  = file.path(out_dir, paste0("alpha_endemism_records_cluster_", i, "_avg.tif")),
+    overwrite = TRUE
+  )
+
+  avg_list[[i]] <- alpha_endemism_records_cluster
+}
+
+# ============================================================
+# 3) Unir clústeres en un solo raster
+# ============================================================
+alpha_endemism_records_all <- avg_list[[1]]
+for (j in 2:length(avg_list)) {
+  alpha_endemism_records_all <- cover(alpha_endemism_records_all, avg_list[[j]])
+}
+
+writeRaster(
+  alpha_endemism_records_all,
+  filename  = file.path(out_dir, "alpha_endemism_records_all_clusters_avg.tif"),
+  overwrite = TRUE
+)
+
+# ============================================================
+# 4) Escala Likert (1–5) aplicada al raster final
+# ============================================================
+# Cada clúster ya está en 0–1, aplicar Likert directamente
+alpha_endemism_records_all_likert5 <- to_likert_5(alpha_endemism_records_all)
+
+writeRaster(
+  alpha_endemism_records_all_likert5,
+  filename  = file.path(out_dir, "alpha_endemism_records_all_clusters_likert5.tif"),
+  overwrite = TRUE
+)
+
+cat("\n============================================================\n")
+cat("✓ Análisis combinado completado exitosamente\n")
+cat("============================================================\n")
+cat("Características del análisis:\n")
+cat("  • Cada clúster analizado independientemente (escala 0-1 interna)\n")
+cat("  • Promedio de 3 capas: alpha + endemismo + densidad invertida\n")
+cat("  • Densidad de registros invertida ANTES de escalar\n")
+cat("  • Resultado final unificado en una sola capa\n")
+cat("  • Clasificación Likert 1-5 aplicada\n")
+cat("============================================================\n")
+<<<<<<<<<<<< CELL: 16 TYPE: code >>>>>>>>>>>>
+plot(alpha_endemism_records_all_likert5)
+<<<<<<<<<<<< FILE: 6_Report.ipynb >>>>>>>>>>>>
+<<<<<<<<<<<< CELL: 0 TYPE: markdown >>>>>>>>>>>>
+# Report
+<<<<<<<<<<<< CELL: 1 TYPE: code >>>>>>>>>>>>
+library(ggplot2)
+library(dplyr)
+library(terra)
+library(raster)
+library(sf)
+library(scales)
+library(patchwork)
+library(openxlsx)
+library(grid)  
+library(paletteer)
+library(ggspatial) 
+library(viridis)
+library(units)
+<<<<<<<<<<<< CELL: 2 TYPE: markdown >>>>>>>>>>>>
+# Data
+<<<<<<<<<<<< CELL: 3 TYPE: code >>>>>>>>>>>>
+cleaning_data = read.csv("Data/Records/cleaning_data.csv")
+insects_records <- read.csv("Data/Records/insects_records_clean.csv")
+
+ecu <- st_read("Data/Shp/ecuador_limits.shp", quiet = TRUE)
+buffer = st_read("Data/Shp/buffer_100_km_external.shp")
+snap <- st_read("Data/Shp/snap.shp", quiet = TRUE)
+natural_regions <- st_read("Data/Shp/ron_2011_no_UTM.shp", quiet = TRUE)
+
+# =========================
+# 3) Asegurar CRS = 4326 y geometrías válidas
+# =========================
+to_4326_valid <- function(x){
+  x <- st_make_valid(x)
+  if (is.na(st_crs(x))) st_crs(x) <- 4326
+  st_transform(x, 4326)
+}
+
+ecu <- to_4326_valid(ecu)
+snap <- to_4326_valid(snap)
+natural_regions <- to_4326_valid(natural_regions)
+
+# =========================
+# 4) Convertir registros a puntos sf (4326)
+# =========================
+stopifnot(all(c("decimalLongitude","decimalLatitude") %in% names(insects_records)))
+
+insects_pts <- st_as_sf(
+  insects_records,
+  coords = c("decimalLongitude", "decimalLatitude"),
+  crs = 4326,
+  remove = FALSE
+) %>%
+  st_make_valid()
+
+# =========================
+# 5) Cortar (clip) capas a Ecuador
+#    - Puntos: quedarse solo con puntos dentro de Ecuador
+#    - Polígonos: recortar a Ecuador
+# =========================
+ecu_u <- st_union(ecu)
+
+## Sampling completness
+sampling_effort = st_read(  "Results/shp/grid_10km_sampling.shp")
+sampling_filter = st_read( "Results/shp/grid_10km_sampling_filter.shp")
+## Raster data
+
+alpha_div = rast( "Results/raster/GAM_prediction_alpha.tif")
+endemism = rast( "Results/GIE/Endemism_consensus.tiff")
+density = rast( "Results/raster/records_kernel_density.tiff")
+nmds_stack = rast(  "Results/raster/nmds_result.tiff")
+cluster_nmds = rast( "Results/raster/cluster_raster_result.tiff")
+
+alpha_kg_likert = rast("Results/raster/alpha_diversity/alpha_conservation_all_clusters_likert5.tif")
+endemism_kg_likert = rast("Results/raster/endemism/endemism_conservation_all_clusters_likert5.tif")
+alpha_endemism_kg_likert = rast( "Results/raster/alpha_endemism_records/alpha_endemism_records_all_clusters_likert5.tif")
+<<<<<<<<<<<< CELL: 4 TYPE: markdown >>>>>>>>>>>>
+# Data Distribution
+<<<<<<<<<<<< CELL: 5 TYPE: markdown >>>>>>>>>>>>
+## Report data cleaning
+<<<<<<<<<<<< CELL: 6 TYPE: code >>>>>>>>>>>>
+# % retained (optional label)
+retained_pct <- 100 * cleaning_data$len_data[nrow(library(scales))] / cleaning_data$len_data[1]
+
+cleaning_data <- cleaning_data %>%
+  arrange(steps) %>%
+  mutate(
+    retained_pct = 100 * len_data / first(len_data),
+    decreased_pct = 100 - retained_pct,
+    removed_abs = lag(len_data) - len_data,
+    removed_pct_prev = 100 * (lag(len_data) - len_data) / lag(len_data)
+  )
+
+retained_final  <- cleaning_data$retained_pct[nrow(cleaning_data)]
+decreased_final <- cleaning_data$decreased_pct[nrow(cleaning_data)]
+
+filtering_plot <- ggplot(cleaning_data, aes(x = steps, y = len_data)) +
+  geom_line(color = "grey20", linewidth = 0.3) +
+  geom_point(color = "grey20", fill = "grey75", shape = 21, size = 2.1, stroke = 0.4) +
+  geom_text(aes(label = sprintf("%.1f%%", retained_pct), nudge_x = 0.42 ,   nudge_y = 1000),
+                vjust = -0.8, size = 1.6, color = "grey20")+
+  scale_x_continuous(breaks = cleaning_data$steps) +
+  scale_y_continuous(labels = label_comma(accuracy = 1)) +
+  labs(x = "Filtering step", y = "Number of records") +
+  # Etiqueta final: retenido y disminución acumulada vs inicial
+
+  theme_classic(base_size = 7) +
+  theme(
+    axis.text = element_text(color = "grey20"),
+    axis.title = element_text(color = "grey20"),
+    axis.line = element_line(color = "grey20", linewidth = 0.4),
+    axis.ticks = element_line(color = "grey20", linewidth = 0.4),
+    plot.margin = margin(3, 3, 3, 3, "mm")
+  )
+
+filtering_plot
+<<<<<<<<<<<< CELL: 7 TYPE: code >>>>>>>>>>>>
+# Single-column width: ~85 mm (common journal 1-column). Height ajustable.
+ggsave(
+  filename = "Results/Reports/Plots/records_filtering_steps_single_column.png",
+  plot = filtering_plot,
+  width = 85, height = 70, units = "mm", dpi = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 8 TYPE: markdown >>>>>>>>>>>>
+## Distribution per taxonomical data
+<<<<<<<<<<<< CELL: 9 TYPE: code >>>>>>>>>>>>
+# Puntos dentro de Ecuador
+in_ecu <- lengths(st_within(insects_pts, ecu_u)) > 0
+insects_pts_ecu <- insects_pts[in_ecu, ]
+
+# Species 
+
+sp_n = length (unique(insects_pts_ecu$scientificName))
+genus_n = length(unique(insects_pts_ecu$genus))
+families_n = length (unique(insects_pts_ecu$family))
+
+cat("sp: ",sp_n, "genus: ",genus_n, "families: ",families_n)
+<<<<<<<<<<<< CELL: 10 TYPE: markdown >>>>>>>>>>>>
+## Distribution per order
+<<<<<<<<<<<< CELL: 11 TYPE: code >>>>>>>>>>>>
+
+# -------------------------
+# Registros: top 8 + Otro
+# -------------------------
+ord_rec_raw <- insects_pts_ecu |>
+  count(order, name = "n_records") |>
+  arrange(desc(n_records))
+
+top8_rec <- ord_rec_raw |> slice_head(n = 8) |> pull(order)
+
+ord_rec <- ord_rec_raw |>
+  mutate(order_grp = if_else(order %in% top8_rec, order, "Other")) |>
+  group_by(order_grp) |>
+  summarise(n_records = sum(n_records), .groups = "drop") |>
+  mutate(pct_records = 100 * n_records / sum(n_records)) |>
+  arrange(desc(n_records)) |>
+  mutate(order_grp = factor(order_grp, levels = c(top8_rec, "Other")[c(top8_rec, "Other") %in% order_grp]))
+
+# -------------------------
+# Especies únicas: top 8 + Otro
+# -------------------------
+ord_sp_raw <- insects_pts_ecu |>
+  distinct(order, scientificName) |>
+  count(order, name = "n_species") |>
+  arrange(desc(n_species))
+
+top8_sp <- ord_sp_raw |> slice_head(n = 8) |> pull(order)
+
+ord_sp <- ord_sp_raw |>
+  mutate(order_grp = if_else(order %in% top8_sp, order, "Other")) |>
+  group_by(order_grp) |>
+  summarise(n_species = sum(n_species), .groups = "drop") |>
+  mutate(pct_species = 100 * n_species / sum(n_species)) |>
+  arrange(desc(n_species)) |>
+  mutate(order_grp = factor(order_grp, levels = c(top8_sp, "Other")[c(top8_sp, "Other") %in% order_grp]))
+
+# ============================================================
+# Estilo (idéntico a los gráficos anteriores)
+# ============================================================
+base_theme <- theme_classic(base_size = 9) +
+  theme(
+    axis.text  = element_text(color = "grey20"),
+    axis.title = element_text(color = "grey20"),
+    axis.line  = element_line(color = "grey20", linewidth = 0.4),
+    axis.ticks = element_line(color = "grey20", linewidth = 0.4),
+    plot.margin = margin(3, 3, 3, 3, "mm"),
+    plot.title = element_text(color = "grey20", size = 8.5, hjust = 0)
+  )
+
+# a) Registros
+reg_order<- ggplot(ord_rec, aes(x = order_grp, y = n_records)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_records)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "a)",
+    x = "Order",
+    y = "Nº records"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+# b) Especies
+sp_order <- ggplot(ord_sp, aes(x = order_grp, y = n_species)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_species)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "b)",
+    x = "Order",
+    y = "Nº species"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+(reg_order | sp_order) + plot_layout(widths = c(1, 1))
+<<<<<<<<<<<< CELL: 12 TYPE: markdown >>>>>>>>>>>>
+## Distribution per Database
+<<<<<<<<<<<< CELL: 13 TYPE: code >>>>>>>>>>>>
+db_rec <- insects_pts_ecu |>
+  count(database_name, name = "n_records") |>
+  mutate(pct_records = 100 * n_records / sum(n_records)) |>
+  arrange(desc(n_records)) |>
+  mutate(database_name = factor(database_name, levels = database_name))
+
+# -------------------------
+# Especies únicas por base de datos
+# Barra: n_species = especies únicas dentro del grupo (igual que antes)
+# Porcentaje: respecto a riqueza global (S_global) del dataset
+# -------------------------
+S_global <- insects_pts_ecu |>
+  distinct(scientificName) |>
+  nrow()
+
+db_sp <- insects_pts_ecu |>
+  distinct(database_name, scientificName) |>
+  count(database_name, name = "n_species") |>
+  mutate(
+    pct_species = 100 * n_species / S_global  # <-- cambio clave
+  ) |>
+  arrange(desc(n_species)) |>
+  mutate(database_name = factor(database_name, levels = database_name))
+
+
+
+# c) Registros por database_name
+reg_database <- ggplot(db_rec, aes(x = database_name, y = n_records)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_records)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "c)",
+    x = "Database",
+    y = "Nº records"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+# d) Especies únicas por database_name
+sp_database <- ggplot(db_sp, aes(x = database_name, y = n_species)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_species)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "d)",
+    x = "Database",
+    y = "Nº species"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+(reg_database | sp_database) + plot_layout(widths = c(1, 1))
+<<<<<<<<<<<< CELL: 14 TYPE: markdown >>>>>>>>>>>>
+## Dsitribution per Institution code
+<<<<<<<<<<<< CELL: 15 TYPE: code >>>>>>>>>>>>
+
+
+df <- insects_pts_ecu |>
+  st_drop_geometry() |>
+  mutate(
+    institutionCode = if_else(is.na(institutionCode) | institutionCode == "", "No data", institutionCode),
+    institutionCode = if_else(institutionCode == "Uniwersytet Jagiello?ski", "Uniwersytet Jagielloński", institutionCode)
+  ) |>
+  filter(!is.na(scientificName), scientificName != "")
+
+# ============================================================
+# 1) REGISTROS: calcular para todas, graficar top 5
+#    pct_records = % del total de registros del dataset
+# ============================================================
+inst_rec_all <- df |>
+  count(institutionCode, name = "n_records") |>
+  mutate(pct_records = 100 * n_records / sum(n_records)) |>
+  arrange(desc(n_records))
+
+inst_rec_top5 <- inst_rec_all |>
+  slice_head(n = 5) |>
+  mutate(institutionCode = factor(institutionCode, levels = institutionCode))
+
+# ============================================================
+# 2) ESPECIES: calcular para todas, graficar top 5
+#    Barra: n_species (especies únicas dentro del grupo)
+#    pct_species = % de la riqueza global del dataset (S_global)
+# ============================================================
+S_global <- df |>
+  distinct(scientificName) |>
+  nrow()
+
+inst_sp_all <- df |>
+  distinct(institutionCode, scientificName) |>
+  count(institutionCode, name = "n_species") |>
+  mutate(pct_species = 100 * n_species / S_global) |>
+  arrange(desc(n_species))
+
+inst_sp_top5 <- inst_sp_all |>
+  slice_head(n = 5) |>
+  mutate(institutionCode = factor(institutionCode, levels = institutionCode))
+
+
+
+# a) Top 5 instituciones por registros
+reg_institution <- ggplot(inst_rec_top5, aes(x = institutionCode, y = n_records)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_records)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "e)",
+    x = "Institution",
+    y = "Nº records"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+# b) Top 5 instituciones por especies únicas
+sp_institution <- ggplot(inst_sp_top5, aes(x = institutionCode, y = n_species)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_species)),
+            vjust = -0.25, size =2.5, color = "grey20") +
+  scale_y_continuous(labels = label_comma(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "f)",
+    x = "Institution",
+    y = "Nº species"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1, vjust = 1))
+
+(reg_institution | sp_institution) + plot_layout(widths = c(1, 1))
+
+<<<<<<<<<<<< CELL: 16 TYPE: markdown >>>>>>>>>>>>
+## Distribution per natural region
+<<<<<<<<<<<< CELL: 17 TYPE: code >>>>>>>>>>>>
+natural_regions_ecu <- st_intersection(natural_regions, ecu_u) %>% st_make_valid()
+# Join por intersección (dentro)
+pts_join_reg <- st_join(
+  insects_pts_ecu,
+  natural_regions_ecu,
+  join = st_within,
+  left = TRUE
+)
+# Identificar columnas "de región" (todas las de natural_regions excepto geometry)
+reg_cols <- setdiff(names(natural_regions_ecu), attr(natural_regions_ecu, "sf_column"))
+
+# Para los que quedaron sin región (NA en la primera col de región), asignar el más cercano
+if (length(reg_cols) > 0) {
+  na_idx <- is.na(st_drop_geometry(pts_join_reg)[[reg_cols[1]]])
+
+  if (any(na_idx)) {
+    nearest_id <- st_nearest_feature(pts_join_reg[na_idx, ], natural_regions_ecu)
+
+    # Extraer atributos del polígono más cercano
+    nearest_attrs <- st_drop_geometry(natural_regions_ecu[nearest_id, reg_cols, drop = FALSE])
+
+    # Distancia al polígono más cercano (en metros aprox con S2 apagado; es una aproximación en 4326)
+    # Si necesitas distancia geodésica exacta, deja sf_use_s2(TRUE) y recalcula.
+    nearest_dist <- as.numeric(st_distance(pts_join_reg[na_idx, ], natural_regions_ecu[nearest_id, ], by_element = TRUE))
+
+    # Rellenar atributos y guardar distancia + flag
+    pts_join_reg[na_idx, reg_cols] <- nearest_attrs
+    pts_join_reg$natural_region_assignment <- "within"
+    pts_join_reg$natural_region_dist_to_nearest_m <- NA_real_
+    pts_join_reg$natural_region_dist_to_nearest_m[na_idx] <- nearest_dist
+    pts_join_reg$natural_region_assignment[na_idx] <- "nearest"
+  } else {
+    pts_join_reg$natural_region_assignment <- "within"
+    pts_join_reg$natural_region_dist_to_nearest_m <- NA_real_
+  }
+} else {
+  stop("No se detectaron columnas de atributos en natural_regions (solo geometry).")
+}
+<<<<<<<<<<<< CELL: 18 TYPE: code >>>>>>>>>>>>
+
+
+# -----------------------------------------------------------
+# ============================================================
+# 1) REGISTROS por tipo de vegetación
+#    pct_records = % del total de registros del dataset
+# ============================================================
+veg_rec <- pts_join_reg |>
+  count(veget, name = "n_records") |>
+  mutate(pct_records = 100 * n_records / sum(n_records)) |>
+  arrange(desc(n_records)) |>
+  mutate(veget = factor(veget, levels = veget))
+
+# ============================================================
+# 2) ESPECIES por tipo de vegetación
+#    Barra: n_species = especies únicas dentro de cada veget
+#    Porcentaje: % de la riqueza global (S_global)
+# ============================================================
+S_global <- pts_join_reg |>
+  distinct(scientificName) |>
+  nrow()
+
+veg_sp <- pts_join_reg |>
+  distinct(veget, scientificName) |>
+  count(veget, name = "n_species") |>
+  mutate(pct_species = 100 * n_species / S_global) |>
+  arrange(desc(n_species)) |>
+  mutate(veget = factor(veget, levels = veget))
+
+
+# ------------------------------------------------------------
+# a) Registros por vegetación
+# ------------------------------------------------------------
+reg_natural_region <- ggplot(veg_rec, aes(x = veget, y = n_records)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_records)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(
+    labels = label_comma(accuracy = 1),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "g)",
+    x = "Natural region",
+    y = "Nº records"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+
+# ------------------------------------------------------------
+# b) Especies únicas por vegetación
+# ------------------------------------------------------------
+sp_natural_region <- ggplot(veg_sp, aes(x = veget, y = n_species)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_species)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(
+    labels = label_comma(accuracy = 1),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "h)",
+    x = "Natural Region",
+    y = "Nº species"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+
+(reg_natural_region | sp_natural_region) + plot_layout(widths = c(1, 1))
+<<<<<<<<<<<< CELL: 19 TYPE: markdown >>>>>>>>>>>>
+## Distribution per SNAP
+<<<<<<<<<<<< CELL: 20 TYPE: code >>>>>>>>>>>>
+# =========================
+# 6) Extraer info SNAP: dentro / fuera
+# =========================
+snap_ecu <- st_intersection(snap, ecu_u) %>% st_make_valid()
+in_snap <- lengths(st_within(insects_pts_ecu, snap_ecu)) > 0
+insects_pts_ecu$snap_in_out <- ifelse(in_snap, "SNAP", "Outside SNAP")
+
+
+# ============================================================
+# 1) REGISTROS por condición SNAP
+#    pct_records = % del total de registros del dataset
+# ============================================================
+snap_rec <- insects_pts_ecu |>
+  count(snap_in_out, name = "n_records") |>
+  mutate(pct_records = 100 * n_records / sum(n_records)) |>
+  arrange(desc(n_records)) |>
+  mutate(snap_in_out = factor(snap_in_out, levels = snap_in_out))
+
+# ============================================================
+# 2) ESPECIES por condición SNAP
+#    Barra: n_species = especies únicas dentro de cada grupo
+#    Porcentaje: % de la riqueza global (S_global)
+# ============================================================
+S_global <- insects_pts_ecu |>
+  distinct(scientificName) |>
+  nrow()
+
+snap_sp <- insects_pts_ecu |>
+  distinct(snap_in_out, scientificName) |>
+  count(snap_in_out, name = "n_species") |>
+  mutate(pct_species = 100 * n_species / S_global) |>
+  arrange(desc(n_species)) |>
+  mutate(snap_in_out = factor(snap_in_out, levels = snap_in_out))
+
+
+# ------------------------------------------------------------
+# a) Registros dentro / fuera de SNAP
+# ------------------------------------------------------------
+reg_snap <- ggplot(snap_rec, aes(x = snap_in_out, y = n_records)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_records)),
+            vjust = -0.25, size =2.5, color = "grey20") +
+  scale_y_continuous(
+    labels = label_comma(accuracy = 1),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "i)",
+    x = "Protected area (SNAP)",
+    y = "Nº records"
+  ) +
+  base_theme
+
+# ------------------------------------------------------------
+# b) Especies únicas dentro / fuera de SNAP
+# ------------------------------------------------------------
+sp_snap <- ggplot(snap_sp, aes(x = snap_in_out, y = n_species)) +
+  geom_col(fill = "grey75", color = "grey20", linewidth = 0.3, width = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", pct_species)),
+            vjust = -0.25, size = 2.5, color = "grey20") +
+  scale_y_continuous(
+    labels = label_comma(accuracy = 1),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "j)",
+    x = "Protected area (SNAP)",
+    y = "Nº species"
+  ) +
+  base_theme
+
+(reg_snap | sp_snap) + plot_layout(widths = c(1, 1))
+<<<<<<<<<<<< CELL: 21 TYPE: markdown >>>>>>>>>>>>
+## Export plot
+<<<<<<<<<<<< CELL: 22 TYPE: code >>>>>>>>>>>>
+plots <- list(reg_order, sp_order,
+  reg_database, sp_database,
+  reg_institution, sp_institution,
+  reg_natural_region, sp_natural_region,
+  reg_snap, sp_snap)
+
+wrap_plots = wrap_plots(plots, ncol = 2) 
+wrap_plots
+<<<<<<<<<<<< CELL: 23 TYPE: code >>>>>>>>>>>>
+ggsave(
+  filename = "Results/Reports/Plots/records_distribution.png",
+  plot     = wrap_plots,
+  width    = 180, height = 225, units = "mm",
+  dpi      = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 24 TYPE: markdown >>>>>>>>>>>>
+## Export dataset
+<<<<<<<<<<<< CELL: 25 TYPE: markdown >>>>>>>>>>>>
+Order
+<<<<<<<<<<<< CELL: 26 TYPE: code >>>>>>>>>>>>
+order_summary = ord_rec_raw   %>% left_join(ord_sp_raw, by = c("order")) %>%as.data.frame()%>%dplyr::select(-geometry)
+order_summary$Percentaje_records = (order_summary$n_records/ sum(order_summary$n_records))*100
+order_summary$Percentaje_sp= (order_summary$n_species/ sum(order_summary$n_species))*100
+order_summary = order_summary%>% dplyr::select(order, n_records,Percentaje_records,   n_species, Percentaje_sp)
+colnames(order_summary) = c("Order",  "Total Records", "Percentage of Records", "Total Species", "Percentage of Species from the total")
+head(order_summary, 5)
+<<<<<<<<<<<< CELL: 27 TYPE: markdown >>>>>>>>>>>>
+Database
+<<<<<<<<<<<< CELL: 28 TYPE: code >>>>>>>>>>>>
+db_summary = db_rec   %>% left_join(db_sp, by = c("database_name")) %>%as.data.frame()%>%dplyr::select(-geometry)
+colnames(db_summary) = c("Database", "Total Records", "Percentage of Records", "Total Species", "Percentage of Species from the total")
+head(db_summary, 5)
+<<<<<<<<<<<< CELL: 29 TYPE: markdown >>>>>>>>>>>>
+Institution
+<<<<<<<<<<<< CELL: 30 TYPE: code >>>>>>>>>>>>
+inst_summary =  inst_rec_all   %>% left_join(inst_sp_all, by = c("institutionCode"))
+colnames(inst_summary) = c("Institution Code", "Total Records", "Percentage of Records", "Total Species", "Percentage of Species from the total")
+head(inst_summary, 5)
+<<<<<<<<<<<< CELL: 31 TYPE: markdown >>>>>>>>>>>>
+Natural region
+<<<<<<<<<<<< CELL: 32 TYPE: code >>>>>>>>>>>>
+veg_summary = veg_rec%>% left_join(veg_sp, by = c("veget")) %>%as.data.frame()%>%dplyr::select(-geometry)
+colnames(veg_summary) = c("Natural Region", "Total Records", "Percentage of Records", "Total Species", "Percentage of Species from the total")
+head(veg_summary, 5)
+<<<<<<<<<<<< CELL: 33 TYPE: markdown >>>>>>>>>>>>
+SNAP
+<<<<<<<<<<<< CELL: 34 TYPE: code >>>>>>>>>>>>
+snap_summary =  snap_rec%>% left_join(snap_sp, by = c("snap_in_out"))%>%as.data.frame()%>%dplyr::select(-geometry)
+colnames(snap_summary) = c("SNAP", "Total Records", "Percentage of Records", "Total Species", "Percentage of Species from the total")
+head(snap_summary, 5)
+<<<<<<<<<<<< CELL: 35 TYPE: markdown >>>>>>>>>>>>
+Export
+<<<<<<<<<<<< CELL: 36 TYPE: code >>>>>>>>>>>>
+# -------------------------
+# Crear workbook y hojas
+# -------------------------
+wb <- createWorkbook()
+
+addWorksheet(wb, "order_summary")
+writeData(wb, sheet = "order_summary", x = order_summary)
+
+addWorksheet(wb, "db_summary")
+writeData(wb, sheet = "db_summary", x = db_summary)
+
+addWorksheet(wb, "inst_summary")
+writeData(wb, sheet = "inst_summary", x = inst_summary)
+
+addWorksheet(wb, "veg_summary")
+writeData(wb, sheet = "veg_summary", x = veg_summary)
+
+addWorksheet(wb, "snap_summary")
+writeData(wb, sheet = "snap_summary", x = snap_summary)
+
+
+out_file <- "Results/Reports/excels/distribution_data_report.xlsx"
+
+saveWorkbook(wb, file = out_file, overwrite = TRUE)
+<<<<<<<<<<<< CELL: 37 TYPE: markdown >>>>>>>>>>>>
+# GAMs plots
+<<<<<<<<<<<< CELL: 38 TYPE: markdown >>>>>>>>>>>>
+## Alpha diversity
+<<<<<<<<<<<< CELL: 39 TYPE: code >>>>>>>>>>>>
+
+alpha_div_gam <- readRDS("Results/Reports/GAMs/partial_effects_alpha.rds")
+
+base_theme <- theme_classic(base_size = 10) +
+  theme(
+    axis.text  = element_text(color = "grey20"),
+    axis.title = element_text(color = "grey20"),
+    axis.line  = element_line(color = "grey20", linewidth = 0.4),
+    axis.ticks = element_line(color = "grey20", linewidth = 0.4),
+    plot.margin = margin(3, 3, 3, 3, "mm"),
+    plot.title = element_text(color = "grey20", size = 9.5, hjust = 0)
+  )
+
+alpha_elev <- ggplot(alpha_div_gam$new_elev, aes(elev_mean, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Elevation", y = "Richness") +
+  ggtitle("a)")+
+  base_theme
+
+alpha_lon <- ggplot(alpha_div_gam$new_x, aes(centroid_x, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "X", y = "Richness") +
+  ggtitle("b)")+
+    base_theme
+
+alpha_lat <- ggplot(alpha_div_gam$new_y, aes(centroid_y, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Y", y = "Richness") +
+  ggtitle("c)")+
+    base_theme
+
+(alpha_elev | alpha_lon | alpha_lat)
+<<<<<<<<<<<< CELL: 40 TYPE: markdown >>>>>>>>>>>>
+## Beta diversity - NMDS 1
+<<<<<<<<<<<< CELL: 41 TYPE: code >>>>>>>>>>>>
+
+nmds1_gam <- readRDS("Results/Reports/GAMs/partial_effects_nmds1.rds")
+
+nmds1_elev <- ggplot(nmds1_gam$new_elev, aes(elev_mean, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Elevation", y = "NMDS1") +
+  ggtitle("d)")+
+  base_theme
+
+nmds1_lon <- ggplot(nmds1_gam$new_x, aes(centroid_x, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "X", y = "NMDS1") +
+  ggtitle("e)")+
+    base_theme
+
+nmds1_lat <- ggplot(nmds1_gam$new_y, aes(centroid_y, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Y", y = "NMDS1") +
+  ggtitle("f)")+
+    base_theme
+
+(nmds1_elev | nmds1_lon | nmds1_lat)
+<<<<<<<<<<<< CELL: 42 TYPE: markdown >>>>>>>>>>>>
+## Beta diversity - NMDS 2
+<<<<<<<<<<<< CELL: 43 TYPE: code >>>>>>>>>>>>
+
+nmds2_gam <- readRDS("Results/Reports/GAMs/partial_effects_nmds2.rds")
+
+nmds2_elev <- ggplot(nmds2_gam$new_elev, aes(elev_mean, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Elevation", y = "NMDS2") +
+  ggtitle("g)")+
+  base_theme
+
+nmds2_lon <- ggplot(nmds2_gam$new_x, aes(centroid_x, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "X", y = "NMDS2") +
+  ggtitle("h)")+
+    base_theme
+
+nmds2_lat <- ggplot(nmds2_gam$new_y, aes(centroid_y, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  labs(x = "Y", y = "NMDS2") +
+  ggtitle("i)")+
+    base_theme
+
+(nmds2_elev | nmds2_lon | nmds2_lat)
+<<<<<<<<<<<< CELL: 44 TYPE: markdown >>>>>>>>>>>>
+## Export plot
+<<<<<<<<<<<< CELL: 45 TYPE: code >>>>>>>>>>>>
+plots <- list(alpha_elev, alpha_lon,
+  alpha_lat,nmds1_elev , nmds1_lon , nmds1_lat,
+  nmds2_elev , nmds2_lon , nmds2_lat)
+
+wrap_gams_plots = wrap_plots(plots, ncol = 3) 
+wrap_gams_plots
+<<<<<<<<<<<< CELL: 46 TYPE: code >>>>>>>>>>>>
+ggsave(
+  filename = "Results/Reports/Plots/plot_gams.png",
+  plot     = wrap_gams_plots,
+  width    = 180, height = 150, units = "mm",
+  dpi      = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 47 TYPE: markdown >>>>>>>>>>>>
+# Maps
+<<<<<<<<<<<< CELL: 48 TYPE: markdown >>>>>>>>>>>>
+## Sampling completness
+<<<<<<<<<<<< CELL: 49 TYPE: code >>>>>>>>>>>>
+# ----------------------------
+# 1) Preparación de datos
+# ----------------------------
+sampling_effort <- st_make_valid(sampling_effort) |> st_transform(4326)
+sampling_effort$Smplg_c <- as.numeric(sampling_effort$Smplg_c)
+sampling_effort_ecu <- sampling_effort |> filter(!is.na(Smplg_c))
+
+# ----------------------------
+# 2) Tema base (sin saturar)
+# ----------------------------
+base_theme <- theme_classic(base_size = 9) +
+  theme(
+    text = element_text(color = "grey20"),
+    axis.text  = element_text(color = "grey20", size = 7),
+    axis.title = element_text(color = "grey20", size = 7.5),
+
+    axis.line  = element_line(color = "grey25", linewidth = 0.35),
+    axis.ticks = element_line(color = "grey25", linewidth = 0.35),
+    axis.ticks.length = unit(1.2, "mm"),
+
+    panel.grid.major = element_line(color = "grey90", linewidth = 0.25),
+    panel.grid.minor = element_blank(),
+
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background  = element_rect(fill = "white", colour = NA),
+
+    panel.border = element_rect(color = "grey30", fill = NA, linewidth = 0.4),
+
+    # margen uniforme
+    plot.margin = margin(3, 3, 3, 3, "mm")
+  )
+
+# ----------------------------
+# 3) Leyenda compacta (sin recorte de etiquetas)
+# ----------------------------
+compact_legend <- list(
+  guides(
+    fill = guide_colorbar(
+      title.position = "top",
+      title.hjust = 0.5,
+      label.position = "bottom",
+      label.hjust = 0.5,
+      barwidth  = unit(30, "mm"),
+      barheight = unit(2.2, "mm"),
+      ticks.colour = "grey25",
+      frame.colour = "grey60"
+    )
+  ),
+  theme(
+    legend.position = c(0.98, 0.06),
+    legend.justification = c(1, 0),
+    legend.direction = "horizontal",
+
+    legend.title = element_text(size = 6.5, margin = margin(b = 0.6, unit = "mm")),
+    legend.text  = element_text(size = 6.6, margin = margin(t = 0.6, r = 1.0, l = 1.0, unit = "mm")),
+
+    legend.key.height = unit(2.0, "mm"),
+    legend.key.width  = unit(9, "mm"),
+
+    legend.margin = margin(0.8, 1.2, 0.8, 0.8, "mm"),
+    legend.background = element_rect(
+      fill = alpha("white", 0.85),
+      color = "grey60",
+      linewidth = 0.25
+    )
+  )
+)
+
+# ----------------------------
+# 4) Mapa A) completo
+# (requiere objetos: ecu, buffer)
+# ----------------------------
+mapa_sampling_complete <- ggplot() +
+  geom_sf(
+    data = sampling_effort_ecu,
+    aes(fill = Smplg_c),
+    color = NA
+  ) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  geom_sf(data = buffer, fill = NA, color = "black", size = 0.2) +
+  scale_fill_viridis_c(
+    option = "mako",
+    direction = -1,
+    begin = 0.05,
+    end = 1,
+    na.value = "transparent",
+    breaks = c(0.2, 0.4, 0.6,  0.8, 1.00),
+    labels = label_number(accuracy = 0.1)
+  ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.27, "in"), pad_y = unit(0.2, "in"),
+    height = unit(0.8, "cm"), width = unit(0.8, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  labs(
+    title = NULL,
+    fill = "Sampling coverage",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "a)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_sampling_complete
+<<<<<<<<<<<< CELL: 50 TYPE: code >>>>>>>>>>>>
+
+# ----------------------------
+# 1) Preparación de datos
+# ----------------------------
+sampling_filter <- st_make_valid(sampling_filter) |> st_transform(4326)
+sampling_filter$Smplg_c <- as.numeric(sampling_filter$Smplg_c)
+sampling_effort_filter_ecu <- sampling_filter |> filter(!is.na(Smplg_c))
+# ----------------------------
+# 4) Mapa filtrado
+#    (mismo FIX de título + leyenda interna)
+# ----------------------------
+# Ajuste de leyenda para el mapa b) (evita recorte de etiquetas, incluido 1.00)
+# ----------------------------
+# 4) Mapa B) filtrado
+# (requiere objetos: ecu, buffer)
+# ----------------------------
+mapa_sampling_filter <- ggplot() +
+  geom_sf(
+    data = sampling_effort_filter_ecu,
+    aes(fill = Smplg_c),
+    color = NA
+  ) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  geom_sf(data = buffer, fill = NA, color = "black", size = 0.2) +
+  scale_fill_viridis_c(
+    option = "mako",
+    direction = -1,
+    begin = 0.05,
+    end = 1,
+    na.value = "transparent",
+    breaks = c(0.7, 0.8, 0.9,  1.00),
+    labels = label_number(accuracy = 0.1)
+  ) +
+    annotation_north_arrow(
+      location = "tl", which_north = "true",
+      pad_x = unit(0.27, "in"), pad_y = unit(0.2, "in"),
+      height = unit(0.8, "cm"), width = unit(0.8, "cm"),
+      style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+    )  +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  labs(
+    title = NULL,
+    fill = "Sampling coverage",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "b)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_sampling_filter
+
+
+<<<<<<<<<<<< CELL: 51 TYPE: code >>>>>>>>>>>>
+
+maps_sampling_coverage =  (mapa_sampling_complete | mapa_sampling_filter) +
+  plot_layout(widths = c(1, 1))
+
+maps_sampling_coverage
+<<<<<<<<<<<< CELL: 52 TYPE: code >>>>>>>>>>>>
+ggsave(
+  filename = "Results/Reports/Plots/sampling_coverage_map.png",
+  plot     = maps_sampling_coverage,
+  width    = 180, height = 190, units = "mm",
+  dpi      = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 53 TYPE: code >>>>>>>>>>>>
+len_total_grid = dim(sampling_effort)[1]
+len_data_sampling = dim(sampling_effort_ecu)[1]
+len_data_sampling_filter = dim(sampling_filter)[1]
+
+cat("Dim total grid: ", len_total_grid, "Dim grid with sampling complt data: ", len_data_sampling, "Dim grid with sampling complt data and filtered: ", len_data_sampling_filter)
+<<<<<<<<<<<< CELL: 54 TYPE: code >>>>>>>>>>>>
+percent_total_grid = 100
+percent_total_sampling = (percent_total_grid*len_data_sampling)/len_total_grid
+percent_data_sampling_filter = (percent_total_grid*len_data_sampling_filter)/len_total_grid
+
+cat("% total grid: ", percent_total_grid, "% grid with sampling complt data: ", percent_total_sampling, "% grid with sampling complt data and filtered: ", percent_data_sampling_filter)
+<<<<<<<<<<<< CELL: 55 TYPE: code >>>>>>>>>>>>
+summary(sampling_effort$Smplg_c)
+<<<<<<<<<<<< CELL: 56 TYPE: code >>>>>>>>>>>>
+summary(sampling_filter$Smplg_c)
+<<<<<<<<<<<< CELL: 57 TYPE: markdown >>>>>>>>>>>>
+## Richness, Endemism, Density, knowledge Gaps
+<<<<<<<<<<<< CELL: 58 TYPE: markdown >>>>>>>>>>>>
+### Richness
+<<<<<<<<<<<< CELL: 59 TYPE: code >>>>>>>>>>>>
+
+compact_legend <- theme(
+  legend.position = "bottom",
+  legend.key.size = unit(0.3, "cm"),        # Reduce el tamaño de las keys
+  legend.key.width = unit(0.8, "cm"),       # Ancho de la barra de leyenda
+  legend.key.height = unit(0.25, "cm"),     # Alto de la barra de leyenda
+  legend.title = element_text(size = 7),     # Tamaño del título
+  legend.text = element_text(size = 6),      # Tamaño del texto
+  legend.margin = margin(t = 0, r = 0, b = 0, l = 0),  # Reduce márgenes
+  legend.box.spacing = unit(0.1, "cm")       # Espacio entre leyenda y plot
+)
+
+alpha_div_df <- as.data.frame(rasterToPoints(raster(alpha_div)))
+colnames(alpha_div_df) <- c("longitud", "latitud", "valor")
+
+
+# Convertir los valores de "valor" a numéricos para poder usar un gradiente continuo
+alpha_div_df$valor <- as.numeric(alpha_div_df$valor)
+
+mapa_alpha <-  ggplot(alpha_div_df %>% filter(!is.na(valor))) +
+  # Añadir la capa de datos clasificada con gradiente continuo
+  geom_tile(aes(x = longitud, y = latitud, fill = valor))+
+ 
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+    scale_fill_gradientn(
+      colours = c("green", "yellow", "orange", "red"),  # Definir el gradiente
+      na.value = "transparent"  # Manejar valores NA
+    ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) + guides(fill = guide_colorbar(barwidth = unit(2, "cm"))) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  labs(
+    title = NULL,
+    fill = "Richness",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "a)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_alpha
+<<<<<<<<<<<< CELL: 60 TYPE: markdown >>>>>>>>>>>>
+### Endemism
+<<<<<<<<<<<< CELL: 61 TYPE: code >>>>>>>>>>>>
+endemism_df <- as.data.frame(rasterToPoints(raster(endemism)))
+colnames(endemism_df) <- c("longitud", "latitud", "valor")
+
+
+# Convertir los valores de "valor" a numéricos para poder usar un gradiente continuo
+endemism_df$valor <- as.numeric(endemism_df$valor)
+
+mapa_endemism <-  ggplot(endemism_df %>% filter(!is.na(valor))) +
+  # Añadir la capa de datos clasificada con gradiente continuo
+  geom_tile(aes(x = longitud, y = latitud, fill = valor))+
+ 
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+    scale_fill_gradientn(
+      colours = c("green", "yellow", "orange", "red"),  # Definir el gradiente
+      na.value = "transparent"  # Manejar valores NA
+    ) +
+      annotation_north_arrow(
+        location = "tl", which_north = "true",
+        pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+        height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+        style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+      ) + guides(fill = guide_colorbar(barwidth = unit(2, "cm"))) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  labs(
+    title = NULL,
+    fill = "GEI",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "b)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_endemism
+<<<<<<<<<<<< CELL: 62 TYPE: markdown >>>>>>>>>>>>
+### Density
+<<<<<<<<<<<< CELL: 63 TYPE: code >>>>>>>>>>>>
+density_df <- as.data.frame(rasterToPoints(raster(density)))
+colnames(density_df) <- c("longitud", "latitud", "valor")
+
+# Convertir los valores de "valor" a numéricos para poder usar un gradiente continuo
+density_df$valor <- as.numeric(density_df$valor)
+
+mapa_density <-  ggplot(density_df %>% filter(!is.na(valor))) +
+  # Añadir la capa de datos clasificada con gradiente continuo
+  geom_tile(aes(x = longitud, y = latitud, fill = valor))+
+ 
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  scale_fill_gradientn(
+    colours = c("green", "yellow", "orange", "red"),  # Definir el gradiente
+    na.value = "transparent",  # Manejar valores NA
+    labels = function(x) paste0(x/1000, "k")  # Convertir a miles con "k"
+  ) +
+    annotation_north_arrow(
+      location = "tl", which_north = "true",
+      pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+      height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+      style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+    ) + guides(fill = guide_colorbar(barwidth = unit(2, "cm"))) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  labs(
+    title = NULL,
+    fill = "Density of records",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "c)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_density
+<<<<<<<<<<<< CELL: 64 TYPE: markdown >>>>>>>>>>>>
+### KG - Richness
+<<<<<<<<<<<< CELL: 65 TYPE: code >>>>>>>>>>>>
+alpha_kg_likert_df <- as.data.frame(rasterToPoints(raster(alpha_kg_likert)))
+colnames(alpha_kg_likert_df) <- c("longitud", "latitud", "valor")
+
+# Likert discreto (1–5) con orden explícito
+alpha_kg_likert_df <- alpha_kg_likert_df |>
+  dplyr::filter(!is.na(valor)) |>
+  dplyr::mutate(
+    valor = factor(valor,
+                   levels = c(1, 2, 3, 4, 5),
+                   labels = c("1", "2", "3", "4", "5"),
+                   ordered = TRUE)
+  )
+
+# SOLUCIÓN: Guardar los límites originales ANTES de agregar dummies
+lon_limits <- range(alpha_kg_likert_df$longitud)
+lat_limits <- range(alpha_kg_likert_df$latitud)
+
+# Agregar filas dummy para niveles faltantes
+niveles_faltantes <- setdiff(c("1", "2", "3", "4", "5"), 
+                              unique(as.character(alpha_kg_likert_df$valor)))
+
+if(length(niveles_faltantes) > 0) {
+  dummy_rows <- data.frame(
+    longitud = rep(NA, length(niveles_faltantes)),  # Usar NA en lugar de coordenadas lejanas
+    latitud = rep(NA, length(niveles_faltantes)),
+    valor = factor(niveles_faltantes, levels = c("1", "2", "3", "4", "5"))
+  )
+  
+  alpha_kg_likert_df <- rbind(alpha_kg_likert_df, dummy_rows)
+}
+
+# Verificar
+str(alpha_kg_likert_df$valor)
+table(alpha_kg_likert_df$valor, useNA = "always")
+
+mapa_alpha_kg_likert <- ggplot(alpha_kg_likert_df) +
+  geom_tile(aes(x = longitud, y = latitud, fill = valor),show.legend = FALSE) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  scale_fill_manual(
+    values = c("1" = "#1a9850",  # verde
+               "2" = "#91cf60",
+               "3" = "#fee08b",  # amarillo
+               "4" = "#fc8d59",
+               "5" = "#d73027"), # rojo
+    drop = FALSE,
+    na.value = "transparent",
+    name = "Knowledge importance"
+  ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(xlim = lon_limits, ylim = lat_limits, expand = FALSE) +  # Forzar límites originales
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      keywidth = unit(0.4, "cm"),
+      keyheight = unit(0.3, "cm"),
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  ) +
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "d)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_alpha_kg_likert
+<<<<<<<<<<<< CELL: 66 TYPE: markdown >>>>>>>>>>>>
+### KG - Endemism
+<<<<<<<<<<<< CELL: 67 TYPE: code >>>>>>>>>>>>
+endemism_kg_likert_df <- as.data.frame(rasterToPoints(raster(endemism_kg_likert)))
+colnames(endemism_kg_likert_df) <- c("longitud", "latitud", "valor")
+
+# Likert discreto (1–5) con orden explícito
+endemism_kg_likert_df <- endemism_kg_likert_df |>
+  dplyr::filter(!is.na(valor)) |>
+  dplyr::mutate(
+    valor = factor(valor,
+                   levels = c(1, 2, 3, 4, 5),
+                   labels = c("1", "2", "3", "4", "5"),
+                   ordered = TRUE)
+  )
+
+# SOLUCIÓN: Guardar los límites originales ANTES de agregar dummies
+lon_limits <- range(endemism_kg_likert_df$longitud)
+lat_limits <- range(endemism_kg_likert_df$latitud)
+
+# Agregar filas dummy para niveles faltantes
+niveles_faltantes <- setdiff(c("1", "2", "3", "4", "5"), 
+                              unique(as.character(endemism_kg_likert_df$valor)))
+
+if(length(niveles_faltantes) > 0) {
+  dummy_rows <- data.frame(
+    longitud = rep(NA, length(niveles_faltantes)),
+    latitud = rep(NA, length(niveles_faltantes)),
+    valor = factor(niveles_faltantes, levels = c("1", "2", "3", "4", "5"))
+  )
+  
+  endemism_kg_likert_df <- rbind(endemism_kg_likert_df, dummy_rows)
+}
+
+# Verificar que la columna 'valor' sea factor
+str(endemism_kg_likert_df$valor)
+table(endemism_kg_likert_df$valor, useNA = "always")
+
+mapa_endemism_kg_likert <- ggplot(endemism_kg_likert_df) +
+  geom_tile(aes(x = longitud, y = latitud, fill = valor)) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  scale_fill_manual(
+    values = c("1" = "#1a9850",  # verde
+               "2" = "#91cf60",
+               "3" = "#fee08b",  # amarillo
+               "4" = "#fc8d59",
+               "5" = "#d73027"), # rojo
+    drop = FALSE,
+    na.value = "transparent",
+    name = "Knowledge importance"
+  ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(xlim = lon_limits, ylim = lat_limits, expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      keywidth = unit(0.4, "cm"),
+      keyheight = unit(0.3, "cm"),
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  ) +
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "e)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_endemism_kg_likert
+<<<<<<<<<<<< CELL: 68 TYPE: markdown >>>>>>>>>>>>
+### KG - Richness/Endemism
+<<<<<<<<<<<< CELL: 69 TYPE: code >>>>>>>>>>>>
+alpha_endemism_kg_likert_df <- as.data.frame(rasterToPoints(raster(alpha_endemism_kg_likert)))
+colnames(alpha_endemism_kg_likert_df) <- c("longitud", "latitud", "valor")
+
+# Likert discreto (1–5) con orden explícito
+alpha_endemism_kg_likert_df <- alpha_endemism_kg_likert_df |>
+  dplyr::filter(!is.na(valor)) |>
+  dplyr::mutate(
+    valor = factor(valor,
+                   levels = c(1, 2, 3, 4, 5),
+                   labels = c("1", "2", "3", "4", "5"),
+                   ordered = TRUE)
+  )
+
+# SOLUCIÓN: Guardar los límites originales ANTES de agregar dummies
+lon_limits <- range(alpha_endemism_kg_likert_df$longitud)
+lat_limits <- range(alpha_endemism_kg_likert_df$latitud)
+
+# Agregar filas dummy para niveles faltantes
+niveles_faltantes <- setdiff(c("1", "2", "3", "4", "5"), 
+                              unique(as.character(alpha_endemism_kg_likert_df$valor)))
+
+if(length(niveles_faltantes) > 0) {
+  dummy_rows <- data.frame(
+    longitud = rep(NA, length(niveles_faltantes)),
+    latitud = rep(NA, length(niveles_faltantes)),
+    valor = factor(niveles_faltantes, levels = c("1", "2", "3", "4", "5"))
+  )
+  
+  alpha_endemism_kg_likert_df <- rbind(alpha_endemism_kg_likert_df, dummy_rows)
+}
+
+# Verificar que la columna 'valor' sea factor
+str(alpha_endemism_kg_likert_df$valor)
+table(alpha_endemism_kg_likert_df$valor, useNA = "always")
+
+mapa_alpha_endemism_kg_likert <- ggplot(alpha_endemism_kg_likert_df) +
+  geom_tile(aes(x = longitud, y = latitud, fill = valor), show.legend = FALSE) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  scale_fill_manual(
+    values = c("1" = "#1a9850",  # verde
+               "2" = "#91cf60",
+               "3" = "#fee08b",  # amarillo
+               "4" = "#fc8d59",
+               "5" = "#d73027"), # rojo
+    drop = FALSE,
+    na.value = "transparent",
+    name = "Knowledge importance"
+  ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(xlim = lon_limits, ylim = lat_limits, expand = FALSE) +
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      keywidth = unit(0.4, "cm"),
+      keyheight = unit(0.3, "cm"),
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  ) +
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "f)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_alpha_endemism_kg_likert
+<<<<<<<<<<<< CELL: 70 TYPE: markdown >>>>>>>>>>>>
+### Final Map
+<<<<<<<<<<<< CELL: 71 TYPE: code >>>>>>>>>>>>
+plots <- list(mapa_alpha, mapa_endemism,
+  mapa_density, mapa_alpha_kg_likert,
+  mapa_endemism_kg_likert, mapa_alpha_endemism_kg_likert)
+
+wrap_diveristy_maps <- wrap_plots(plots, ncol = 3, byrow = TRUE) &
+  theme(
+    plot.margin = margin(t = 12, r = 2, b = 5, l = 2, unit = "pt")  # Incrementa margen superior e inferior
+  )
+
+wrap_diveristy_maps
+<<<<<<<<<<<< CELL: 72 TYPE: code >>>>>>>>>>>>
+ggsave(
+  filename = "Results/Reports/Plots/diversity_maps.png",
+  plot     = wrap_diveristy_maps,
+  width    = 180, height = 200, units = "mm",
+  dpi      = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 73 TYPE: markdown >>>>>>>>>>>>
+### Summary
+<<<<<<<<<<<< CELL: 74 TYPE: code >>>>>>>>>>>>
+summary(alpha_div_df$valor)
+<<<<<<<<<<<< CELL: 75 TYPE: code >>>>>>>>>>>>
+summary(endemism_df$valor)
+<<<<<<<<<<<< CELL: 76 TYPE: code >>>>>>>>>>>>
+summary(density_df$valor)
+<<<<<<<<<<<< CELL: 77 TYPE: code >>>>>>>>>>>>
+alpha_kg_likert_summary = alpha_kg_likert_df %>%
+  group_by(valor)%>%
+  summarise(Count= n())%>%
+  ungroup()%>%
+  mutate(Alpha_Percentage = round((Count/sum(Count))*100),2)%>%
+  dplyr:: select(valor, Alpha_Percentage)
+
+alpha_kg_likert_summary
+<<<<<<<<<<<< CELL: 78 TYPE: code >>>>>>>>>>>>
+endemism_kg_likert_summary = endemism_kg_likert_df %>%
+  group_by(valor)%>%
+  summarise(Count= n())%>%
+  ungroup()%>%
+  mutate(Endemism_Percentage = round((Count/sum(Count))*100),2)%>%
+  dplyr:: select( Endemism_Percentage)
+
+endemism_kg_likert_summary
+<<<<<<<<<<<< CELL: 79 TYPE: code >>>>>>>>>>>>
+alpha_endemism_kg_likert_summary = alpha_endemism_kg_likert_df %>%
+  group_by(valor)%>%
+  summarise(Count= n())%>%
+  ungroup()%>%
+  mutate(Alpha_endemism_Percentage  = round((Count/sum(Count))*100),2)%>%
+  dplyr:: select( Alpha_endemism_Percentage)
+
+alpha_endemism_kg_likert_summary
+<<<<<<<<<<<< CELL: 80 TYPE: code >>>>>>>>>>>>
+lables = c("very low", "low", "moderate", "high", "very high")
+summary_kg = cbind( lables, alpha_kg_likert_summary,endemism_kg_likert_summary,alpha_endemism_kg_likert_summary)
+summary_kg
+<<<<<<<<<<<< CELL: 81 TYPE: code >>>>>>>>>>>>
+# -------------------------
+# Crear workbook y hojas
+# -------------------------
+wb <- createWorkbook()
+
+addWorksheet(wb, "summary_kg")
+writeData(wb, sheet = "summary_kg", x = summary_kg)
+
+
+out_file <- "Results/Reports/excels/summary_kg.xlsx"
+
+saveWorkbook(wb, file = out_file, overwrite = TRUE)
+<<<<<<<<<<<< CELL: 82 TYPE: markdown >>>>>>>>>>>>
+## Beta diversity
+<<<<<<<<<<<< CELL: 83 TYPE: markdown >>>>>>>>>>>>
+### NMDS 1
+<<<<<<<<<<<< CELL: 84 TYPE: code >>>>>>>>>>>>
+compact_legend <- theme(
+  legend.position = "bottom",
+  legend.key.size = unit(0.3, "cm"),
+  legend.key.width = unit(0.8, "cm"),
+  legend.key.height = unit(0.25, "cm"),
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.margin = margin(t = 0, r = 0, b = 0, l = 0),
+  legend.box.spacing = unit(0.1, "cm")
+)
+
+nmds1 = nmds_stack[[1]]
+nmds1_df <- as.data.frame(rasterToPoints(raster(nmds1)))
+colnames(nmds1_df) <- c("longitud", "latitud", "valor")
+
+# Convertir los valores de "valor" a numéricos
+nmds1_df$valor <- as.numeric(nmds1_df$valor)
+
+# Remover NAs
+nmds1_df <- na.omit(nmds1_df)
+
+
+# Crear mapa con escala de rojos
+mapa_ndms1 <- ggplot() +
+  # Usar geom_tile con fill basado en valor_stretched
+  geom_tile(data = nmds1_df, 
+            aes(x = longitud, y = latitud, fill = valor)) +
+  
+  # Capa del shapefile de Ecuador
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  
+  # Escala de colores solo en rojo (usando gradiente de rojos)
+  scale_fill_gradientn(
+    colours = c("#ece5e5", "#e69a9a", "#f72828", "#940909"),  # Gradiente de rojos
+    na.value = "transparent",
+    name = "NMDS 1"  # Nombre de la leyenda
+  ) +
+  
+  # Flecha del norte
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) + 
+  
+  # Barra de leyenda personalizada
+  guides(fill = guide_colorbar(
+    barwidth = unit(2, "cm"),
+    title.position = "top",
+    title.hjust = 0.5
+  )) +
+  
+  # Escala
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  
+  # Coordenadas
+  coord_sf(expand = FALSE) +
+  
+  # Temas
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  
+  # Etiquetas
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  
+  # Anotación (a)
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "a)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_ndms1
+<<<<<<<<<<<< CELL: 85 TYPE: markdown >>>>>>>>>>>>
+### NMDS 2
+<<<<<<<<<<<< CELL: 86 TYPE: code >>>>>>>>>>>>
+
+
+nmds2 = nmds_stack[[2]]
+nmds2_df <- as.data.frame(rasterToPoints(raster(nmds2)))
+colnames(nmds2_df) <- c("longitud", "latitud", "valor")
+
+# Convertir los valores de "valor" a numéricos
+nmds2_df$valor <- as.numeric(nmds2_df$valor)
+
+# Remover NAs
+nmds2_df <- na.omit(nmds2_df)
+
+
+# Crear mapa con escala de rojos
+mapa_ndms2 <- ggplot() +
+  # Usar geom_tile con fill basado en valor_stretched
+  geom_tile(data = nmds2_df, 
+            aes(x = longitud, y = latitud, fill = valor)) +
+  
+  # Capa del shapefile de Ecuador
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  
+  # Escala de colores solo en rojo (usando gradiente de rojos)
+  scale_fill_gradientn(
+    colours = c("#e5ece5", "#9ae69a", "#28f728", "#099409"),  # Gradiente de rojos
+    na.value = "transparent",
+    name = "NMDS 2"  # Nombre de la leyenda
+  ) +
+  
+  # Flecha del norte
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) + 
+  
+  # Barra de leyenda personalizada
+  guides(fill = guide_colorbar(
+    barwidth = unit(2, "cm"),
+    title.position = "top",
+    title.hjust = 0.5
+  )) +
+  
+  # Escala
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  
+  # Coordenadas
+  coord_sf(expand = FALSE) +
+  
+  # Temas
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  
+  # Etiquetas
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  
+  # Anotación (a)
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "b)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+mapa_ndms2
+<<<<<<<<<<<< CELL: 87 TYPE: markdown >>>>>>>>>>>>
+### RG
+<<<<<<<<<<<< CELL: 88 TYPE: code >>>>>>>>>>>>
+# Convertir de SpatRaster (terra) a RasterLayer (raster)
+n1 <- raster(nmds1)
+n2 <- raster(nmds2)
+
+# Convertir a data frames con coordenadas
+nmds_df1 <- as.data.frame(n1, xy = TRUE)
+nmds_df2 <- as.data.frame(n2, xy = TRUE)
+
+# Unir ambos data frames
+df_nmds <- merge(nmds_df1, nmds_df2, by = c("x", "y"))
+names(df_nmds) <- c("x", "y", "NMDS1", "NMDS2")
+
+# Remover NAs
+df_nmds <- na.omit(df_nmds)
+
+# Stretch histogram - expande el contraste usando percentiles
+hist_stretch <- function(x, percent = 0.02) {
+  low <- quantile(x, percent, na.rm = TRUE)
+  high <- quantile(x, 1 - percent, na.rm = TRUE)
+  x[x < low] <- low
+  x[x > high] <- high
+  (x - low) / (high - low)
+}
+
+df_nmds$R <- hist_stretch(df_nmds$NMDS1)
+df_nmds$G <- hist_stretch(df_nmds$NMDS2)
+
+# Crear colores RGB
+df_nmds$color <- rgb(df_nmds$R, df_nmds$G, 0)
+
+# Plot con ggplot2
+rg_map <- ggplot() +  # <-- IMPORTANTE: Sin aes() inicial
+  # Primero la capa de raster
+  geom_raster(data = df_nmds, aes(x = x, y = y), fill = df_nmds$color) +
+  
+  # Luego la capa de polígonos (sin aes)
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2, inherit.aes = FALSE) +
+  
+  # Flecha del norte
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) + 
+  
+  # Escala
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  
+  # Coordenadas
+  coord_sf(expand = FALSE) +
+  
+  # Temas
+  theme_minimal() +
+  base_theme +
+  
+  # Etiquetas
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  
+  # Anotación (a)
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "c)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+rg_map
+<<<<<<<<<<<< CELL: 89 TYPE: markdown >>>>>>>>>>>>
+### Cluster
+<<<<<<<<<<<< CELL: 90 TYPE: code >>>>>>>>>>>>
+cluster_nmds_df <- as.data.frame(rasterToPoints(raster(cluster_nmds)))
+colnames(cluster_nmds_df) <- c("longitud", "latitud", "valor")
+
+# Likert discreto (1–5) con orden explícito
+cluster_nmds_df <- cluster_nmds_df |>
+  dplyr::filter(!is.na(valor)) |>
+  dplyr::mutate(
+    valor = factor(valor,
+                   levels = c(1, 2, 3),
+                   labels = c("1", "2", "3"),
+                   ordered = TRUE)
+  )
+
+# SOLUCIÓN: Guardar los límites originales ANTES de agregar dummies
+lon_limits <- range(cluster_nmds_df$longitud)
+lat_limits <- range(cluster_nmds_df$latitud)
+
+# Agregar filas dummy para niveles faltantes
+niveles_faltantes <- setdiff(c("1", "2", "3"), 
+                              unique(as.character(cluster_nmds_df$valor)))
+
+if(length(niveles_faltantes) > 0) {
+  dummy_rows <- data.frame(
+    longitud = rep(NA, length(niveles_faltantes)),  # Usar NA en lugar de coordenadas lejanas
+    latitud = rep(NA, length(niveles_faltantes)),
+    valor = factor(niveles_faltantes, levels = c("1", "2", "3"))
+  )
+  
+  cluster_nmds_df <- rbind(cluster_nmds_df, dummy_rows)
+}
+
+# Verificar
+str(cluster_nmds_df$valor)
+table(cluster_nmds_df$valor, useNA = "always")
+
+mapa_cluster_nmds<- ggplot(cluster_nmds_df) +
+  geom_tile(aes(x = longitud, y = latitud, fill = valor),show.legend = TRUE) +
+  geom_sf(data = ecu, fill = NA, color = "black", size = 0.2) +
+  scale_fill_manual(
+    values = c("1" = "#1a9850",  # verde
+               "2" = "#fee08b",  # amarillo
+               "3" = "#fc8d59"), # rojo
+    drop = FALSE,
+    na.value = "transparent",
+    name = "Cluster"
+  ) +
+  annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.06, "in"), pad_y = unit(0.25, "in"),
+    height = unit(0.5, "cm"), width = unit(0.5, "cm"),
+    style = north_arrow_orienteering(line_width = 0.2, text_size = 5.8)
+  ) +
+  annotation_scale(location = "br", width_hint = 0.28, height = unit(0.09, "cm")) +
+  coord_sf(xlim = lon_limits, ylim = lat_limits, expand = FALSE) +  # Forzar límites originales
+  theme_minimal() +
+  base_theme +
+  compact_legend +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      keywidth = unit(0.4, "cm"),
+      keyheight = unit(0.3, "cm"),
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  ) +
+  labs(
+    title = NULL,
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  annotate(
+    "text",
+    x = -Inf, y = Inf,
+    label = "d)",
+    hjust = -0.1, vjust = 1.1,
+    size = 5,
+    color = "grey20"
+  )
+
+  mapa_cluster_nmds
+<<<<<<<<<<<< CELL: 91 TYPE: markdown >>>>>>>>>>>>
+### Final Map
+<<<<<<<<<<<< CELL: 92 TYPE: code >>>>>>>>>>>>
+plots <- list(mapa_ndms1, mapa_ndms2,
+  rg_map,mapa_cluster_nmds )
+
+wrap_beta_diveristy_maps <- wrap_plots(plots, ncol = 2, byrow = TRUE) &
+  theme(
+    plot.margin = margin(t = 12, r = 2, b = 5, l = 2, unit = "pt")  # Incrementa margen superior e inferior
+  )
+
+  wrap_beta_diveristy_maps
+<<<<<<<<<<<< CELL: 93 TYPE: code >>>>>>>>>>>>
+ggsave(
+  filename = "Results/Reports/Plots/beta_diversity_maps.png",
+  plot     = wrap_beta_diveristy_maps,
+  width    = 180, height = 200, units = "mm",
+  dpi      = 600, bg = "white"
+)
+<<<<<<<<<<<< CELL: 94 TYPE: code >>>>>>>>>>>>
+cluster_summary = cluster_nmds_df %>%
+  group_by(valor)%>%
+  summarise(Count= n())%>%
+  ungroup()%>%
+  mutate(Cluster_Percentage = round((Count/sum(Count))*100),2)%>%
+  dplyr:: select(valor, Cluster_Percentage)%>%as.data.frame()
+
+cluster_summary
