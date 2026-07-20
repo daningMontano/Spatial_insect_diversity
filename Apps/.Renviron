@@ -1,0 +1,2 @@
+RENV_DOWNLOAD_FILE_METHOD = wininet
+CURL_SSL_BACKEND=schannel

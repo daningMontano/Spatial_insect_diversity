@@ -1,3 +1,4 @@
+
 library(shiny)
 library(leaflet)
 library(ggplot2)
@@ -27,13 +28,13 @@ if (!file.exists(flag_file)) {
 # If the preprocessed RDS doesn't exist locally, build it from the local data/ files
 if (!file.exists(preprocessed_path)) {
   message("Building preprocessed dataset from local data/ files...")
-  
+
   # 1. Load raw clean records
   records_csv <- read.csv(file.path(app_data_dir, "insects_records_clean.csv"), stringsAsFactors = FALSE)
-  records_csv <- records_csv %>% 
+  records_csv <- records_csv %>%
     filter(!is.na(decimalLatitude) & !is.na(decimalLongitude)) %>%
     filter(decimalLatitude != 0 & decimalLongitude != 0)
-  
+
   insects_pts <- st_as_sf(
     records_csv,
     coords = c("decimalLongitude", "decimalLatitude"),
@@ -41,36 +42,36 @@ if (!file.exists(preprocessed_path)) {
     remove = FALSE
   ) %>%
     st_make_valid()
-  
+
   # Ecuador limits
   ecu <- st_read(file.path(app_data_dir, "ecuador_limits.shp"), quiet = TRUE)
   ecu <- st_make_valid(ecu)
   if (is.na(st_crs(ecu))) st_crs(ecu) <- 4326
   ecu <- st_transform(ecu, 4326)
   ecu_u <- st_union(ecu)
-  
+
   in_ecu <- lengths(st_within(insects_pts, ecu_u)) > 0
   records_sf <- insects_pts[in_ecu, ]
-  
+
   # Natural Regions
   nat_reg <- st_read(file.path(app_data_dir, "ron_2011_no_UTM.shp"), quiet = TRUE)
   nat_reg <- st_make_valid(nat_reg)
   if (is.na(st_crs(nat_reg))) st_crs(nat_reg) <- 4326
   nat_reg <- st_transform(nat_reg, 4326)
-  
+
   records_sf <- st_join(records_sf, nat_reg, join = st_within, left = TRUE)
   na_reg <- is.na(records_sf$veget)
   if (any(na_reg)) {
     nearest_id <- st_nearest_feature(records_sf[na_reg, ], nat_reg)
     records_sf$veget[na_reg] <- nat_reg$veget[nearest_id]
   }
-  
+
   # SNAP Protected Areas - Unite 'map' and 'nam' columns to build the SNAP name
   snap <- st_read(file.path(app_data_dir, "snap.shp"), quiet = TRUE)
   snap <- st_make_valid(snap)
   if (is.na(st_crs(snap))) st_crs(snap) <- 4326
   snap <- st_transform(snap, 4326)
-  
+
   if (all(c("map", "nam") %in% names(snap))) {
     snap$snap_name <- paste(ifelse(is.na(snap$map), "", snap$map),
       ifelse(is.na(snap$nam), "", snap$nam),
@@ -83,13 +84,13 @@ if (!file.exists(preprocessed_path)) {
     if (is.na(snap_name_col)) snap_name_col <- names(snap)[1]
     snap$snap_name <- snap[[snap_name_col]]
   }
-  
+
   snap_subset <- snap %>% select(snap_name)
-  
+
   records_sf <- st_join(records_sf, snap_subset, join = st_within, left = TRUE)
   records_sf$snap_in_out <- ifelse(is.na(records_sf$snap_name), "Outside SNAP", "SNAP")
   records_sf$snap_name[is.na(records_sf$snap_name)] <- "Outside SNAP"
-  
+
   saveRDS(records_sf, preprocessed_path)
   message("Preprocessed RDS saved locally.")
 }
@@ -114,7 +115,6 @@ regions <- c("All", sort(unique(records_df$veget)))
 ui <- fluidPage(
   theme = bslib::bs_theme(bootswatch = "flatly"),
   titlePanel("Spatial Patterns of Insect Diversity in Ecuador"),
-  
   sidebarLayout(
     sidebarPanel(
       h4("Filters"),
@@ -135,9 +135,8 @@ ui <- fluidPage(
         selected = "Ttl_rcr"
       ),
       hr(),
-      p("This application displays spatial insect patterns in Ecuador, integrating conservation rasters, SNAP registries, and natural regions.")
+      p("This application displays spatial insect patterns in Ecuador, integrating conservation areas, registries, and natural regions.")
     ),
-    
     mainPanel(
       tabsetPanel(
         tabPanel(
@@ -182,7 +181,6 @@ ui <- fluidPage(
 
 # Define Server
 server <- function(input, output, session) {
-  
   # Helper to configure plotly download button high resolution
   plotly_high_res <- function(p, filename = "plot") {
     ggplotly(p) %>%
@@ -192,7 +190,7 @@ server <- function(input, output, session) {
           filename = filename,
           width = 1600,
           height = 1000,
-          scale = 3  # Increases resolution/DPI significantly
+          scale = 3 # Increases resolution/DPI significantly
         )
       )
   }
@@ -200,20 +198,20 @@ server <- function(input, output, session) {
   # Dynamically update filter dropdowns based on selections to improve usability
   observe({
     df <- records_df
-    
+
     if (input$order_filter != "All") df <- df %>% filter(order == input$order_filter)
     if (input$family_filter != "All") df <- df %>% filter(family == input$family_filter)
     if (input$genus_filter != "All") df <- df %>% filter(genus == input$genus_filter)
-    
+
     updateSelectInput(session, "family_filter", choices = c("All", sort(unique(df$family))), selected = input$family_filter)
     updateSelectInput(session, "genus_filter", choices = c("All", sort(unique(df$genus))), selected = input$genus_filter)
     updateSelectInput(session, "species_filter", choices = c("All", sort(unique(df$scientificName))), selected = input$species_filter)
   })
-  
+
   # Reactive dataset based on filters
   filtered_data <- reactive({
     df <- records_df
-    
+
     if (input$order_filter != "All") {
       df <- df %>% filter(order == input$order_filter)
     }
@@ -238,24 +236,34 @@ server <- function(input, output, session) {
     if (input$region_filter != "All") {
       df <- df %>% filter(veget == input$region_filter)
     }
-    
+
     df
   })
-  
+
   # Summary Metrics
-  output$total_records <- renderText({ nrow(filtered_data()) })
-  output$total_species <- renderText({ n_distinct(filtered_data()$scientificName) })
-  output$total_families <- renderText({ n_distinct(filtered_data()$family) })
-  output$total_orders <- renderText({ n_distinct(filtered_data()$order) })
-  
+  output$total_records <- renderText({
+    nrow(filtered_data())
+  })
+  output$total_species <- renderText({
+    n_distinct(filtered_data()$scientificName)
+  })
+  output$total_families <- renderText({
+    n_distinct(filtered_data()$family)
+  })
+  output$total_orders <- renderText({
+    n_distinct(filtered_data()$order)
+  })
+
   # Interactive Plots (Using Plotly with High-Res Download)
-  
+
   # SNAP - Records count plot
   output$snap_records_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
-    p <- df %>% 
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
+    p <- df %>%
       count(snap_in_out) %>%
       ggplot(aes(x = snap_in_out, y = n, fill = snap_in_out)) +
       geom_bar(stat = "identity", width = 0.6) +
@@ -264,13 +272,15 @@ server <- function(input, output, session) {
       labs(title = "Records inside/outside SNAP", x = "", y = "Records Count", fill = "SNAP Status")
     plotly_high_res(p, "snap_records")
   })
-  
+
   # SNAP - Species richness plot
   output$snap_species_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
-    p <- df %>% 
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
+    p <- df %>%
       distinct(snap_in_out, scientificName) %>%
       count(snap_in_out) %>%
       ggplot(aes(x = snap_in_out, y = n, fill = snap_in_out)) +
@@ -280,13 +290,15 @@ server <- function(input, output, session) {
       labs(title = "Unique Species inside/outside SNAP", x = "", y = "Species Count", fill = "SNAP Status")
     plotly_high_res(p, "snap_species_richness")
   })
-  
+
   # Region - Records count plot
   output$region_records_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
-    p <- df %>% 
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
+    p <- df %>%
       count(veget) %>%
       ggplot(aes(x = reorder(veget, n), y = n)) +
       geom_bar(stat = "identity", fill = "#1B4D3E") +
@@ -295,13 +307,15 @@ server <- function(input, output, session) {
       labs(title = "Records by Natural Region", x = "", y = "Records Count")
     plotly_high_res(p, "region_records")
   })
-  
+
   # Region - Species count plot
   output$region_species_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
-    p <- df %>% 
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
+    p <- df %>%
       distinct(veget, scientificName) %>%
       count(veget) %>%
       ggplot(aes(x = reorder(veget, n), y = n)) +
@@ -311,12 +325,14 @@ server <- function(input, output, session) {
       labs(title = "Species Richness by Natural Region", x = "", y = "Species Count")
     plotly_high_res(p, "region_species_richness")
   })
-  
+
   # Family - Records count plot (Top 15)
   output$family_records_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
     p <- df %>%
       count(family) %>%
       top_n(15, wt = n) %>%
@@ -327,12 +343,14 @@ server <- function(input, output, session) {
       labs(title = "Top 15 Families by Record Count", x = "Family", y = "Count")
     plotly_high_res(p, "family_records")
   })
-  
+
   # Family - Species count plot (Top 15)
   output$family_species_plot <- renderPlotly({
     df <- filtered_data()
-    if (nrow(df) == 0) return(NULL)
-    
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+
     p <- df %>%
       distinct(family, scientificName) %>%
       count(family) %>%
@@ -344,25 +362,72 @@ server <- function(input, output, session) {
       labs(title = "Top 15 Families by Species Richness", x = "Family", y = "Unique Species Count")
     plotly_high_res(p, "family_species_richness")
   })
-  
+
   # Base Map Initialization
   output$map <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles(providers$CartoDB.Positron, group = "CartoDB Positron") %>%
-      addProviderTiles(providers$Esri.WorldImagery, group = "Satellite Imagery") %>%
+    # Compute initial palette for the default grid variable "Ttl_rcr"
+    var_data <- grid_shp[["Ttl_rcr"]]
+    clean_data <- var_data[!is.na(var_data)]
+    if (length(clean_data) > 1) {
+      breaks <- tryCatch(
+        {
+          classInt::classIntervals(clean_data, n = 5, style = "jenks")$brks
+        },
+        error = function(e) {
+          pretty(clean_data, n = 5)
+        }
+      )
+      breaks <- unique(breaks)
+      if (length(breaks) < 2) {
+        breaks <- c(min(clean_data), max(clean_data))
+      }
+      init_pal <- colorBin("Blues", domain = var_data, bins = breaks, na.color = "transparent")
+    } else {
+      init_pal <- colorNumeric("Blues", domain = var_data, na.color = "transparent")
+    }
+
+    leaflet(records_sf) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
       setView(lng = -78.5, lat = -1.5, zoom = 7) %>%
+      addCircleMarkers(
+        lng = ~decimalLongitude,
+        lat = ~decimalLatitude,
+        radius = 4,
+        color = "#e74c3c",
+        fillOpacity = 0.7,
+        stroke = FALSE,
+        group = "Occurrences",
+        popup = ~ paste0(
+          "<strong>Species:</strong> <em>", scientificName, "</em><br>",
+          "<strong>Family:</strong> ", family, "<br>",
+          "<strong>SNAP:</strong> ", snap_name
+        ),
+        clusterOptions = markerClusterOptions()
+      ) %>%
+      addPolygons(
+        data = grid_shp, weight = 1, color = "#2c3e50", fillColor = ~ init_pal(var_data), fillOpacity = 0.6,
+        group = "Sampling Grid (10km)",
+        popup = ~ paste0(
+          "<strong>Grid Cell ID:</strong> ", id, "<br>",
+          "<strong>Total Records:</strong> ", Ttl_rcr
+        )
+      ) %>%
+      addLayersControl(
+        overlayGroups = c("Occurrences", "Sampling Grid (10km)"),
+        options = layersControlOptions(collapsed = FALSE)
+      ) %>%
       hideGroup("Sampling Grid (10km)")
   })
-  
+
   # Reactive palettes for grid (Uses Natural Jenks classification)
   grid_pal <- reactive({
     var_data <- grid_shp[[input$grid_var]]
     clean_data <- var_data[!is.na(var_data)]
-    
+
     if (length(clean_data) == 0) {
       return(colorNumeric("Blues", domain = c(0, 1), na.color = "transparent"))
     }
-    
+
     if (length(unique(clean_data)) > 1) {
       # Calculate Natural Jenks breaks
       breaks <- tryCatch(
@@ -382,7 +447,7 @@ server <- function(input, output, session) {
       colorNumeric("Blues", domain = var_data, na.color = "transparent")
     }
   })
-  
+
   # Observe grid variable and active layers to update map overlays
   observe({
     pal <- grid_pal()
@@ -392,7 +457,7 @@ server <- function(input, output, session) {
       "Totl_sp" = "Total Species",
       "Smplg_c" = "Sampling Coverage"
     )
-    
+
     leafletProxy("map") %>%
       # Reactively colored grid overlay (Colored with Natural Jenks)
       clearGroup("Sampling Grid (10km)") %>%
@@ -404,19 +469,17 @@ server <- function(input, output, session) {
           "<strong>", var_label, ":</strong> ", grid_shp[[var_name]]
         )
       ) %>%
-      
       # Layer Controls
       addLayersControl(
-        baseGroups = c("CartoDB Positron", "Satellite Imagery"),
         overlayGroups = c("Occurrences", "Sampling Grid (10km)"),
         options = layersControlOptions(collapsed = FALSE)
       )
   })
-  
+
   # Reactive Map Markers Update
   observe({
     df <- filtered_data()
-    
+
     if (nrow(df) > 0) {
       leafletProxy("map", data = df) %>%
         clearGroup("Occurrences") %>%
@@ -439,14 +502,14 @@ server <- function(input, output, session) {
       leafletProxy("map") %>% clearGroup("Occurrences")
     }
   })
-  
+
   # Dynamic Legend Observer: Displays legends for active layers only
   observe({
     proxy <- leafletProxy("map")
     proxy %>% clearControls()
-    
+
     active_groups <- input$map_groups
-    
+
     if ("Sampling Grid (10km)" %in% active_groups) {
       pal <- grid_pal()
       var_name <- input$grid_var
@@ -464,7 +527,7 @@ server <- function(input, output, session) {
       )
     }
   })
-  
+
   # Data Table (Preview and Interactive Search)
   output$table <- renderDT({
     datatable(
@@ -476,7 +539,7 @@ server <- function(input, output, session) {
       rownames = FALSE
     )
   })
-  
+
   # CSV Download Handler (Exports full filtered dataset with all metadata)
   output$download_filtered <- downloadHandler(
     filename = function() {
