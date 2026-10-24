@@ -62,3 +62,14 @@ Thumbs.db
 !Data/Shp/snap.*
 !Data/Shp/ron_2011_no_UTM.*
 
+.Rproj.user
+
+# Shiny runtime copies, local dependencies and generated verification outputs.
+Apps/.test-library/
+Apps/data/
+Apps/article_results.R
+Apps/*_preview.jpg
+Apps/validation_results.txt
+Apps/performance_results.csv
+.Renviron
+.Renviron.*

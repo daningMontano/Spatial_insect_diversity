@@ -1,0 +1,51 @@
+.institutional-header {
+  background: #fff;
+  border-bottom: 1px solid #e3e9e5;
+  margin: 0 0 20px;
+  padding: 20px clamp(12px, 3vw, 40px);
+}
+
+.institutional-logos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.9fr);
+  align-items: center;
+  gap: clamp(12px, 4vw, 56px);
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.institutional-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 132px;
+}
+
+.institutional-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 190px;
+  object-fit: contain;
+}
+
+.institutional-logo-wide img {
+  max-width: 380px;
+}
+
+/* Preserve one row on small screens while reducing the reserved vertical space. */
+@media (max-width: 600px) {
+  .institutional-header {
+    padding: 14px 6px;
+    margin-bottom: 14px;
+  }
+
+  .institutional-logos {
+    gap: 12px;
+  }
+
+  .institutional-logo {
+    height: 88px;
+  }
+}
