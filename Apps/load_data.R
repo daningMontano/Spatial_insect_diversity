@@ -16,9 +16,13 @@ load_notebook_data <- function(data_dir = "data", verify = FALSE) {
   paths <- c(paths, list.files(data_dir, pattern = "\\.cpg$"))
   full_paths <- file.path(data_dir, paths)
   if (any(!file.exists(full_paths))) stop("Missing occurrence inputs: ", paste(paths[!file.exists(full_paths)], collapse = ", "))
-  signature <- list(version = 4L, input_encoding = "latin1", hashes = input_file_hashes(full_paths, data_dir, verify),
-    sf = as.character(packageVersion("sf")), spatial_engine = sf::sf_extSoftVersion(),
-    s2 = sf::sf_use_s2())
+  # Cache key is content-only (input MD5 + schema version). It excludes sf/GEOS/GDAL/PROJ versions
+  # and sf_use_s2(): the server runtime differs from the build machine, so including them invalidated
+  # the shipped cache and forced a >60 s rebuild at startup (shinyapps.io worker timeout).
+  # The build environment is stored as metadata instead.
+  signature <- list(version = 5L, input_encoding = "latin1", hashes = input_file_hashes(full_paths, data_dir, verify))
+  build_env <- list(sf = as.character(packageVersion("sf")), spatial_engine = sf::sf_extSoftVersion(),
+    s2 = sf::sf_use_s2(), built_at = format(Sys.time(), tz = "UTC", usetz = TRUE))
   cache <- file.path(data_dir, "notebook_records_v4.rds")
   if (file.exists(cache)) {
     saved <- tryCatch(readRDS(cache), error = function(e) NULL)
@@ -77,7 +81,7 @@ load_notebook_data <- function(data_dir = "data", verify = FALSE) {
   region_names <- split(region_links$veget, region_links$id_record)
   pts$veget <- vapply(as.character(pts$id_record), function(id) paste(sort(unique(region_names[[id]])), collapse = "; "), character(1))
   result <- list(signature = signature, records_sf = pts, region_links = region_links,
-    snap_links = unique(snap_links), n_source = nrow(raw))
+    snap_links = unique(snap_links), n_source = nrow(raw), build_env = build_env)
   # Replace only the derived cache after the complete build succeeds.
   temporary <- tempfile(tmpdir = data_dir, fileext = ".rds")
   saveRDS(result, temporary)

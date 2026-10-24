@@ -83,6 +83,7 @@ ui <- fluidPage(
         tabPanel(
           "Overview & Statistics", value = "overview",
           p("National totals count unique occurrence identifiers within Ecuador. Regional plots preserve the regional assignments used in the report."),
+          p("Reference analysis scope: 117,233 curated occurrences in the 100-km buffer; 106,651 unique national records; 7,268 grid cells, of which 1,712 meet coverage reporting and 162 meet the analysis threshold (>=100 records; coverage >=0.7)."),
           textOutput("missing_taxa"),
           selectInput("summary_group", "Distribution summary", choices = c("Order" = "order", "Database" = "database_name", "Institution" = "institutionCode", "Natural region" = "veget", "SNAP" = "snap_in_out", "Family" = "family", "Genus" = "genus", "Species" = "scientificName")),
           DTOutput("distribution_summary"),

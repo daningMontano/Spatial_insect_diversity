@@ -31,7 +31,8 @@ make_grid_loader <- function(data_dir = "data") {
     if (!is.null(loaded)) return(loaded)
     paths <- file.path(data_dir, paste0("grid_10km_sampling", c(".shp", ".shx", ".dbf", ".prj")))
     if (any(!file.exists(paths))) stop("Sampling grid files are missing.")
-    signature <- list(hashes = tools::md5sum(paths), sf = as.character(packageVersion("sf")), version = 1L)
+    # Content-only key: sf version excluded so the shipped cache stays valid on the server.
+    signature <- list(hashes = tools::md5sum(paths), version = 2L)
     cache <- file.path(data_dir, "map_grid_wgs84.rds")
     saved <- if (file.exists(cache)) tryCatch(readRDS(cache), error = function(e) NULL) else NULL
     if (!is.null(saved) && identical(saved$signature, signature)) {

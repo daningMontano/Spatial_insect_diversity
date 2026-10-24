@@ -1,0 +1,10 @@
+name: apps
+title: Apps
+username: daningmontano
+account: daningmontano
+server: connect.posit.cloud
+hostUrl: https://api.connect.posit.cloud/v1
+appId: 01a16b8c-d958-ae49-a199-8d4a390d0f9b
+bundleId:
+url: https://connect.posit.cloud/daningmontano/content/01a16b8c-d958-ae49-a199-8d4a390d0f9b
+version: 1
